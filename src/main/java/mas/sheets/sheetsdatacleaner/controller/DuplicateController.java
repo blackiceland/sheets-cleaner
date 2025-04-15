@@ -19,7 +19,6 @@ public class DuplicateController {
 
     private final DuplicateDetectionService duplicateDetectionService;
 
-
     @PostMapping(DUPLICATES)
     public ResponseEntity<List<DuplicateMatchResponse>> detectDuplicates(@RequestBody DuplicateMatchRequest request) {
         List<DuplicateMatchResponse> duplicates = duplicateDetectionService.findDuplicates(request);

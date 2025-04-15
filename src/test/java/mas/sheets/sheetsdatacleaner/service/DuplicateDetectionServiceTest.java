@@ -26,14 +26,30 @@ class DuplicateDetectionServiceTest {
                 List.of("Col1", "Col2", "Col3"),
                 rows,
                 "TestSheet",
-                "test-spreadsheet-id"
+                "test-spreadsheet-id",
+                false
         );
 
         List<DuplicateMatchResponse> result = service.findDuplicates(request);
 
+        showDetails(description, result);
+
         assertThat(result)
                 .as("Test case: " + description)
                 .hasSize(expectedDuplicatesCount);
+    }
+
+    private static void showDetails(String description, List<DuplicateMatchResponse> result) {
+        System.out.printf("🧪 %s — найдено %d дубликатов: %n", description, result.size());
+
+        for (DuplicateMatchResponse match : result) {
+            System.out.printf(
+                    "🔁 Дубликат: %s\n   🔹 Индекс оригинальной строки: #%d\n   🔸 Индексы дубликатов %s\n\n",
+                    match.normalizedRows(),
+                    match.originalRowIndex(),
+                    match.duplicateRowIndexes()
+            );
+        }
     }
 
     private static Stream<Arguments> provideTestCases() {

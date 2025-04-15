@@ -7,5 +7,6 @@ public record DuplicateMatchRequest(
         List<String> headers,
         List<List<String>> rows,
         String sheetName,
-        String spreadsheetId
+        String spreadsheetId,
+        boolean containsHeader
 ) {}
