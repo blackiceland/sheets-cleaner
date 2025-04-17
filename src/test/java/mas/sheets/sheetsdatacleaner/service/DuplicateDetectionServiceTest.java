@@ -2,9 +2,11 @@ package mas.sheets.sheetsdatacleaner.service;
 
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.service.impl.DuplicateDetectionServiceImpl;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
@@ -16,7 +18,9 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
 @SpringBootTest
 class DuplicateDetectionServiceTest {
 
-    private final DuplicateDetectionServiceImpl service = new DuplicateDetectionServiceImpl();
+    @Autowired
+    private DuplicateDetectionServiceImpl duplicateDetectionService;
+
 
     @ParameterizedTest(name = "{index} — {0}")
     @MethodSource("provideTestCases")
@@ -30,7 +34,7 @@ class DuplicateDetectionServiceTest {
                 false
         );
 
-        List<DuplicateMatchResponse> result = service.findDuplicates(request);
+        List<DuplicateMatchResponse> result = duplicateDetectionService.findDuplicates(request);
 
         showDetails(description, result);
 
@@ -54,24 +58,24 @@ class DuplicateDetectionServiceTest {
 
     private static Stream<Arguments> provideTestCases() {
         return Stream.of(
-//                arguments(
-//                        "No duplicates",
-//                        List.of(
-//                                List.of("Alice", "alice@mail.com", "USA"),
-//                                List.of("Bob", "bob@mail.com", "UK"),
-//                                List.of("Charlie", "charlie@mail.com", "France")
-//                        ),
-//                        0
-//                ),
-//                arguments(
-//                        "One full duplicate",
-//                        List.of(
-//                                List.of("Alice", "alice@mail.com", "USA"),
-//                                List.of("Bob", "bob@mail.com", "UK"),
-//                                List.of("Alice", "alice@mail.com", "USA")
-//                        ),
-//                        1
-//                ),
+                arguments(
+                        "No duplicates",
+                        List.of(
+                                List.of("Alice", "alice@mail.com", "USA"),
+                                List.of("Bob", "bob@mail.com", "UK"),
+                                List.of("Charlie", "charlie@mail.com", "France")
+                        ),
+                        0
+                ),
+                arguments(
+                        "One full duplicate",
+                        List.of(
+                                List.of("Alice", "alice@mail.com", "USA"),
+                                List.of("Bob", "bob@mail.com", "UK"),
+                                List.of("Alice", "alice@mail.com", "USA")
+                        ),
+                        1
+                ),
                 arguments(
                         "Two separate duplicates",
                         List.of(

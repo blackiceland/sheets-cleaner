@@ -1,18 +1,27 @@
-package mas.sheets.sheetsdatacleaner.service;
+package mas.sheets.sheetsdatacleaner.service.impl;
 
+import lombok.RequiredArgsConstructor;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
-import mas.sheets.sheetsdatacleaner.service.impl.DuplicateDetectionService;
+import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
+import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+
 
 @Service
+@RequiredArgsConstructor
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
+
+    private final NeuralSimilarityService neuralSimilarityService;
 
     private static final double DEFAULT_SCORE_THRESHOLD = 0.9;
     private static final String CELL_SEPARATOR = "|";
@@ -58,7 +67,12 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         int rowCount = normalizedRows.size();
         Map<String, List<Integer>> firstCellValueToRowIndexes = buildFirstCellValueToRowIndexesMap(normalizedRows);
 
-        boolean[] rowVisited = new boolean[rowCount];
+        AtomicBoolean[] rowVisited = new AtomicBoolean[rowCount];
+
+        for (int i = 0; i < rowCount; i++) {
+            rowVisited[i] = new AtomicBoolean();
+        }
+
         Map<Integer, List<Integer>> originalRowIndexToGroupIndexes = new LinkedHashMap<>();
 
         for (List<Integer> groupRowIndexes : firstCellValueToRowIndexes.values()) {
@@ -71,9 +85,11 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             for (int i = 0; i < groupRowIndexes.size(); i++) {
                 int rowIndex = groupRowIndexes.get(i);
 
-                if (rowVisited[rowIndex]) {
+                if (rowVisited[rowIndex].get()) {
                     continue;
                 }
+
+                rowVisited[rowIndex].set(true);
 
                 List<Integer> duplicateRows = collectGroupDepthFirst(i, similarityGraphs, groupRowIndexes, rowVisited);
 
@@ -108,25 +124,42 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             concurrentGraphs.add(new ConcurrentLinkedQueue<>());
         }
 
-        IntStream.range(0, size).parallel().forEach(i -> {
-            for (int j = i + 1; j < size; j++) {
-                int left = groupRowIndexes.get(i);
-                int right = groupRowIndexes.get(j);
-                double similarityScore = exactMatchScore(normalizedRows.get(left), normalizedRows.get(right));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<Void>> tasks = new ArrayList<>();
 
-                if (similarityScore >= DEFAULT_SCORE_THRESHOLD) {
-                    concurrentGraphs.get(i).add(j);
-                    concurrentGraphs.get(j).add(i);
-                }
+            for (int i = 0; i < size; i++) {
+                int finalI = i;
+                tasks.add(executor.submit(() -> {
+                    for (int j = finalI + 1; j < size; j++) {
+                        int left = groupRowIndexes.get(finalI);
+                        int right = groupRowIndexes.get(j);
+
+                        String firstRowText = normalizedRows.get(left);
+                        String secondRowText = normalizedRows.get(right);
+                        double similarityScore = neuralSimilarityService.fetchSimilarityScore(firstRowText, secondRowText);
+
+                        if (similarityScore >= DEFAULT_SCORE_THRESHOLD) {
+                            concurrentGraphs.get(finalI).add(j);
+                            concurrentGraphs.get(j).add(finalI);
+                        }
+                    }
+                    return null;
+                }));
             }
-        });
+
+            for (Future<Void> task : tasks) {
+                task.get();
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Failed to compute similarity graph", e);
+        }
 
         return concurrentGraphs.stream()
                 .map(ArrayList::new)
                 .collect(Collectors.toList());
     }
 
-    private List<Integer> collectGroupDepthFirst(int localIndex, List<List<Integer>> similarityGraphs, List<Integer> bucket, boolean[] rowVisited) {
+    private List<Integer> collectGroupDepthFirst(int localIndex, List<List<Integer>> similarityGraphs, List<Integer> bucket, AtomicBoolean[] rowVisited) {
         List<Integer> groupIndexes = new ArrayList<>();
         Deque<Integer> nodesToVisitStack = new ArrayDeque<>();
         nodesToVisitStack.push(localIndex);
@@ -135,27 +168,23 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             int currentLocal = nodesToVisitStack.pop();
             int currentGlobal = bucket.get(currentLocal);
 
-            if (rowVisited[currentGlobal]) {
+            if (rowVisited[currentGlobal].get()) {
                 continue;
             }
 
-            rowVisited[currentGlobal] = true;
+            rowVisited[currentGlobal].set(true);
             groupIndexes.add(currentGlobal);
 
             for (int neighbourLocal : similarityGraphs.get(currentLocal)) {
                 int neighbourGlobal = bucket.get(neighbourLocal);
 
-                if (!rowVisited[neighbourGlobal]) {
+                if (!rowVisited[neighbourGlobal].get()) {
                     nodesToVisitStack.push(neighbourLocal);
                 }
             }
         }
 
         return groupIndexes;
-    }
-
-    private double exactMatchScore(String left, String right) {
-        return left.equals(right) ? 1.0 : 0.0;
     }
 
     private List<DuplicateMatchResponse> mapToResponses(List<String> normalizedRows, Map<Integer, List<Integer>> rowIndexToDuplicates) {
