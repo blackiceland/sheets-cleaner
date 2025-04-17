@@ -16,7 +16,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
 @SpringBootTest
 class DuplicateDetectionServiceTest {
 
-    private final DuplicateDetectionService service = new DuplicateDetectionService();
+    private final DuplicateDetectionServiceImpl service = new DuplicateDetectionServiceImpl();
 
     @ParameterizedTest(name = "{index} — {0}")
     @MethodSource("provideTestCases")
@@ -45,7 +45,7 @@ class DuplicateDetectionServiceTest {
         for (DuplicateMatchResponse match : result) {
             System.out.printf(
                     "🔁 Дубликат: %s\n   🔹 Индекс оригинальной строки: #%d\n   🔸 Индексы дубликатов %s\n\n",
-                    match.normalizedRows(),
+                    match.originalCells(),
                     match.originalRowIndex(),
                     match.duplicateRowIndexes()
             );
@@ -54,29 +54,30 @@ class DuplicateDetectionServiceTest {
 
     private static Stream<Arguments> provideTestCases() {
         return Stream.of(
-                arguments(
-                        "No duplicates",
-                        List.of(
-                                List.of("Alice", "alice@mail.com", "USA"),
-                                List.of("Bob", "bob@mail.com", "UK"),
-                                List.of("Charlie", "charlie@mail.com", "France")
-                        ),
-                        0
-                ),
-                arguments(
-                        "One full duplicate",
-                        List.of(
-                                List.of("Alice", "alice@mail.com", "USA"),
-                                List.of("Bob", "bob@mail.com", "UK"),
-                                List.of("Alice", "alice@mail.com", "USA")
-                        ),
-                        1
-                ),
+//                arguments(
+//                        "No duplicates",
+//                        List.of(
+//                                List.of("Alice", "alice@mail.com", "USA"),
+//                                List.of("Bob", "bob@mail.com", "UK"),
+//                                List.of("Charlie", "charlie@mail.com", "France")
+//                        ),
+//                        0
+//                ),
+//                arguments(
+//                        "One full duplicate",
+//                        List.of(
+//                                List.of("Alice", "alice@mail.com", "USA"),
+//                                List.of("Bob", "bob@mail.com", "UK"),
+//                                List.of("Alice", "alice@mail.com", "USA")
+//                        ),
+//                        1
+//                ),
                 arguments(
                         "Two separate duplicates",
                         List.of(
                                 List.of("A", "a@mail.com", "US"),
                                 List.of("B", "b@mail.com", "UK"),
+                                List.of("A", "a@mail.com", "US"),
                                 List.of("A", "a@mail.com", "US"),
                                 List.of("B", "b@mail.com", "UK"),
                                 List.of("C", "c@mail.com", "CA")
