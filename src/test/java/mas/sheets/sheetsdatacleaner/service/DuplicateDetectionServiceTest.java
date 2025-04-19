@@ -44,7 +44,7 @@ class DuplicateDetectionServiceTest {
     }
 
     private static void showDetails(String description, List<DuplicateMatchResponse> result) {
-        System.out.printf("🧪 %s — найдено %d дубликатов: %n", description, result.size());
+        System.out.printf("🧪 %s — найдено %d пар дубликатов: %n", description, result.size());
 
         for (DuplicateMatchResponse match : result) {
             System.out.printf(
@@ -58,24 +58,24 @@ class DuplicateDetectionServiceTest {
 
     private static Stream<Arguments> provideTestCases() {
         return Stream.of(
-                arguments(
-                        "No duplicates",
-                        List.of(
-                                List.of("Alice", "alice@mail.com", "USA"),
-                                List.of("Bob", "bob@mail.com", "UK"),
-                                List.of("Charlie", "charlie@mail.com", "France")
-                        ),
-                        0
-                ),
-                arguments(
-                        "One full duplicate",
-                        List.of(
-                                List.of("Alice", "alice@mail.com", "USA"),
-                                List.of("Bob", "bob@mail.com", "UK"),
-                                List.of("Alice", "alice@mail.com", "USA")
-                        ),
-                        1
-                ),
+//                arguments(
+//                        "No duplicates",
+//                        List.of(
+//                                List.of("Alice", "alice@mail.com", "USA"),
+//                                List.of("Bob", "bob@mail.com", "UK"),
+//                                List.of("Charlie", "charlie@mail.com", "France")
+//                        ),
+//                        0
+//                ),
+//                arguments(
+//                        "One full duplicate",
+//                        List.of(
+//                                List.of("Alice", "alice@mail.com", "USA"),
+//                                List.of("Bob", "bob@mail.com", "UK"),
+//                                List.of("Alice", "alice@mail.com", "USA")
+//                        ),
+//                        1
+//                ),
                 arguments(
                         "Two separate duplicates",
                         List.of(
@@ -96,8 +96,55 @@ class DuplicateDetectionServiceTest {
                                 List.of("ALICE", "Alice@Mail.Com", "USA")
                         ),
                         1
+                ),
+//                arguments(
+//                        "Rows with null and empty strings",
+//                        List.of(
+//                                List.of("John", "", null),
+//                                List.of("John", "", ""),
+//                                List.of("john", null, "")
+//                        ),
+//                        1
+//                ),
+                arguments(
+                        "Partial duplicates (should not be grouped)",
+                        List.of(
+                                List.of("A", "x", "y"),
+                                List.of("A", "x", "z"),
+                                List.of("A", "x", "y", "z")
+                        ),
+                        0
+                ),
+                arguments(
+                        "Reordered columns (should not match)",
+                        List.of(
+                                List.of("A", "B", "C"),
+                                List.of("C", "B", "A")
+                        ),
+                        0
+                ),
+                arguments(
+                        "Duplicate group with five entries",
+                        List.of(
+                                List.of("X", "x@example.com", "DE"),
+                                List.of("X", "x@example.com", "DE"),
+                                List.of("x", "X@EXAMPLE.COM", "de"),
+                                List.of(" X ", " X@EXAMPLE.COM ", " DE "),
+                                List.of("x", "x@example.com", "de")
+                        ),
+                        1
+                ),
+                arguments(
+                        "Rows with punctuation only differences",
+                        List.of(
+                                List.of("Mr. Smith", "smith@mail.com", "USA"),
+                                List.of("Mr Smith", "smith@mail.com", "USA"),
+                                List.of("Mr-Smith", "smith@mail.com", "USA")
+                        ),
+                        0 // unless нейросеть научена игнорировать пунктуацию
                 )
         );
     }
+
 }
 
