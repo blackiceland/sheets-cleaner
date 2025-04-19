@@ -9,7 +9,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-class RowNormalizerServiceImplTest {
+class RowNormalizerServiceTest {
 
     private final RowNormalizerServiceImpl service = new RowNormalizerServiceImpl();
 
