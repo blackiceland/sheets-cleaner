@@ -1,5 +1,6 @@
-package mas.sheets.sheetsdatacleaner.service.impl;
+package mas.sheets.sheetsdatacleaner.service;
 
+import mas.sheets.sheetsdatacleaner.service.impl.RowNormalizerServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
