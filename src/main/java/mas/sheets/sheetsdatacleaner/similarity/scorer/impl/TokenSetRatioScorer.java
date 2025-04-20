@@ -48,6 +48,5 @@ public class TokenSetRatioScorer implements SimilarityScorer {
                 .filter(token -> !token.isBlank() && !token.equals("|"))
                 .collect(Collectors.toSet());
     }
-
 }
 
