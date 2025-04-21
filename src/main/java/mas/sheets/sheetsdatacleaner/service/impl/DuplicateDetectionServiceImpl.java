@@ -1,131 +1,153 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
+import mas.sheets.sheetsdatacleaner.dto.response.DuplicateGroup;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.enums.MatchConfidenceLevel;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
-import mas.sheets.sheetsdatacleaner.service.SimilarityGraphBuilder;
+import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
+import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
+import mas.sheets.sheetsdatacleaner.service.RowNormalizerService;
+import mas.sheets.sheetsdatacleaner.service.impl.MinHashCandidateDetectionServiceImpl.IndexPair;
+import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
-import static mas.sheets.sheetsdatacleaner.util.RowNormalizer.normalizeRows;
-
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
-    private final SimilarityGraphBuilder similarityGraphBuilder;
+    private final MinHashCandidateDetectionService candidateGenerator;
+    private final RowNormalizerService rowNormalizerService;
+    private final List<SimilarityScorer> heuristicScorers;
+    private final NeuralSimilarityService neuralSimilarityService;
+
+    public DuplicateDetectionServiceImpl(
+            MinHashCandidateDetectionService candidateGenerator,
+            RowNormalizerService rowNormalizerService,
+            @Qualifier("heuristicScorers") List<SimilarityScorer> heuristicScorers,
+            NeuralSimilarityService neuralSimilarityService
+    ) {
+        this.candidateGenerator = candidateGenerator;
+        this.rowNormalizerService = rowNormalizerService;
+        this.heuristicScorers = heuristicScorers;
+        this.neuralSimilarityService = neuralSimilarityService;
+    }
+
+    private static final double HIGH_CONFIDENCE_THRESHOLD = 0.92;
+    private static final double MEDIUM_CONFIDENCE_THRESHOLD = 0.70;
 
 
     @Override
-    public List<DuplicateMatchResponse> findDuplicates(DuplicateMatchRequest request) {
-        if (request.rows() == null || request.rows().isEmpty()) {
-            return Collections.emptyList();
-        }
+    public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
+        List<String> normalizedRows = rowNormalizerService.normalizeRows(request.rows());
+        Set<IndexPair<Integer, Integer>> candidatePairs = candidateGenerator.generateCandidatePairs(normalizedRows);
 
-        List<List<String>> normalizedRows = normalizeRows(request.rows());
-        Map<String, List<Integer>> firstCellValueToRowIndexes = groupRowsByFirstCell(normalizedRows);
-        Map<Integer, List<Integer>> mainRowIndexToDuplicateIndexes = collectDuplicateRowGroups(normalizedRows, firstCellValueToRowIndexes);
+        Map<Integer, Set<Integer>> similarityMap = new HashMap<>();
+        Map<IndexPair<Integer, Integer>, MatchConfidenceLevel> pairConfidence = new HashMap<>();
 
-        return buildResponses(normalizedRows, mainRowIndexToDuplicateIndexes);
+        processCandidatePairs(normalizedRows, candidatePairs, similarityMap, pairConfidence);
+
+        List<Set<Integer>> clusters = findConnectedComponents(similarityMap);
+
+        return buildResponseFromClusters(clusters, pairConfidence);
     }
 
-    private Map<String, List<Integer>> groupRowsByFirstCell(List<List<String>> normalizedRows) {
-        Map<String, List<Integer>> firstCellValueToRowIndexes = new HashMap<>();
+    private void processCandidatePairs(
+            List<String> normalizedRows,
+            Set<IndexPair<Integer, Integer>> candidatePairs,
+            Map<Integer, Set<Integer>> similarityMap,
+            Map<IndexPair<Integer, Integer>, MatchConfidenceLevel> pairConfidence
+    ) {
+        for (IndexPair<Integer, Integer> rawPair : candidatePairs) {
+            IndexPair<Integer, Integer> pair = IndexPair.ofNormalized(rawPair.first(), rawPair.second());
+            String left = normalizedRows.get(pair.first());
+            String right = normalizedRows.get(pair.second());
 
-        for (int rowIndex = 0; rowIndex < normalizedRows.size(); rowIndex++) {
-            List<String> normalizedRow = normalizedRows.get(rowIndex);
+            double maxHeuristic = heuristicScorers.stream()
+                    .mapToDouble(scorer -> scorer.calculateScore(left, right))
+                    .max()
+                    .orElse(0.0);
 
-            String firstCellValue = normalizedRow.get(0);
+            double neuralScore = neuralSimilarityService.fetchSimilarityScore(left, right);
+            double score = Math.max(maxHeuristic, neuralScore);
 
-            firstCellValueToRowIndexes
-                    .computeIfAbsent(firstCellValue, key -> new ArrayList<>())
-                    .add(rowIndex);
+            if (score >= MEDIUM_CONFIDENCE_THRESHOLD) {
+                similarityMap.computeIfAbsent(pair.first(), k -> new HashSet<>()).add(pair.second());
+                similarityMap.computeIfAbsent(pair.second(), k -> new HashSet<>()).add(pair.first());
+
+                MatchConfidenceLevel level = score >= HIGH_CONFIDENCE_THRESHOLD
+                        ? MatchConfidenceLevel.HIGH
+                        : MatchConfidenceLevel.MEDIUM;
+
+                pairConfidence.put(pair, level);
+            }
         }
-
-        return firstCellValueToRowIndexes;
     }
 
-    private Map<Integer, List<Integer>> collectDuplicateRowGroups(List<List<String>> normalizedRows, Map<String, List<Integer>> firstCellValueToRowIndexes) {
-        AtomicBoolean[] visitedRowFlags = IntStream.range(0, normalizedRows.size())
-                .mapToObj(i -> new AtomicBoolean(false))
-                .toArray(AtomicBoolean[]::new);
+    private DuplicateMatchResponse buildResponseFromClusters(
+            List<Set<Integer>> clusters,
+            Map<IndexPair<Integer, Integer>, MatchConfidenceLevel> pairConfidence
+    ) {
+        List<DuplicateGroup> highConfidenceGroups = new ArrayList<>();
+        List<DuplicateGroup> mediumConfidenceGroups = new ArrayList<>();
 
-        Map<Integer, List<Integer>> representativeRowIndexToDuplicates = new LinkedHashMap<>();
-
-        for (List<Integer> candidateRowIndexes : firstCellValueToRowIndexes.values()) {
-            if (candidateRowIndexes.size() < 2) {
+        for (Set<Integer> cluster : clusters) {
+            if (cluster.size() <= 1) {
                 continue;
             }
 
-            List<String> mergedGroupRows = candidateRowIndexes.stream()
-                    .map(normalizedRows::get)
-                    .map(cells -> String.join("|", cells))
-                    .collect(Collectors.toList());
+            List<Integer> sorted = new ArrayList<>(cluster);
+            sorted.sort(Integer::compareTo);
+            int base = sorted.getFirst();
+            List<Integer> duplicates = sorted.subList(1, sorted.size());
 
-            List<List<Integer>> similarityGraphs = similarityGraphBuilder.buildSimilarityGraphs(mergedGroupRows);
+            boolean hasHighConfidence = duplicates.stream()
+                    .map(index -> IndexPair.ofNormalized(base, index))
+                    .anyMatch(pair -> pairConfidence.getOrDefault(pair, MatchConfidenceLevel.MEDIUM) == MatchConfidenceLevel.HIGH);
 
-            for (int graphNodeIndex = 0; graphNodeIndex < candidateRowIndexes.size(); graphNodeIndex++) {
-                int globalRowIndex = candidateRowIndexes.get(graphNodeIndex);
+            MatchConfidenceLevel overallLevel = hasHighConfidence ? MatchConfidenceLevel.HIGH : MatchConfidenceLevel.MEDIUM;
+            DuplicateGroup group = new DuplicateGroup(base, duplicates, overallLevel);
 
-                if (visitedRowFlags[globalRowIndex].get()) {
-                    continue;
-                }
-
-                List<Integer> duplicateCluster = depthFirstSearch(graphNodeIndex, similarityGraphs, candidateRowIndexes, visitedRowFlags);
-
-                if (duplicateCluster.size() > 1) {
-                    duplicateCluster.sort(Integer::compare);
-                    representativeRowIndexToDuplicates.put(duplicateCluster.get(0), duplicateCluster);
-                }
-            }
-
-        }
-
-        return representativeRowIndexToDuplicates;
-    }
-
-    private List<Integer> depthFirstSearch(int start, List<List<Integer>> graph, List<Integer> group, AtomicBoolean[] visited) {
-        List<Integer> result = new ArrayList<>();
-        Deque<Integer> stack = new ArrayDeque<>();
-        stack.push(start);
-
-        while (!stack.isEmpty()) {
-            int local = stack.pop();
-            int global = group.get(local);
-
-            if (visited[global].getAndSet(true)) {
-                continue;
-            }
-
-            result.add(global);
-
-            for (int neighbor : graph.get(local)) {
-                int neighborGlobal = group.get(neighbor);
-                if (!visited[neighborGlobal].get()) {
-                    stack.push(neighbor);
-                }
+            if (overallLevel == MatchConfidenceLevel.HIGH) {
+                highConfidenceGroups.add(group);
+            } else {
+                mediumConfidenceGroups.add(group);
             }
         }
 
-        return result;
+        return new DuplicateMatchResponse(highConfidenceGroups, mediumConfidenceGroups);
     }
 
-    private List<DuplicateMatchResponse> buildResponses(List<List<String>> normalizedRows, Map<Integer, List<Integer>> groups) {
-        return groups.entrySet().stream().map(entry -> {
-            int origin = entry.getKey();
-            List<Integer> others = new ArrayList<>(entry.getValue());
-            others.remove(Integer.valueOf(origin));
+    private List<Set<Integer>> findConnectedComponents(Map<Integer, Set<Integer>> graph) {
+        Set<Integer> visited = new HashSet<>();
+        List<Set<Integer>> components = new ArrayList<>();
 
-            return new DuplicateMatchResponse(normalizedRows.get(origin), origin, others);
-        }).toList();
+        for (Integer node : graph.keySet()) {
+            if (!visited.contains(node)) {
+                Set<Integer> cluster = new HashSet<>();
+                Queue<Integer> queue = new LinkedList<>();
+                queue.add(node);
+                visited.add(node);
+
+                while (!queue.isEmpty()) {
+                    Integer current = queue.poll();
+                    cluster.add(current);
+
+                    for (Integer neighbor : graph.getOrDefault(current, Set.of())) {
+                        if (visited.add(neighbor)) {
+                            queue.add(neighbor);
+                        }
+                    }
+                }
+
+                components.add(cluster);
+            }
+        }
+
+        return components;
     }
 }
-

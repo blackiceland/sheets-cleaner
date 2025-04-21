@@ -1,12 +1,12 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
-import mas.sheets.sheetsdatacleaner.service.MinHashLSHCandidateGenerator;
+import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 
 @Service
-public class MinHashLSHCandidateGeneratorImpl implements MinHashLSHCandidateGenerator {
+public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDetectionService {
 
     private static final int SIGNATURE_SIZE = 128;
     private static final int BAND_SIZE = 4;
@@ -89,15 +89,18 @@ public class MinHashLSHCandidateGeneratorImpl implements MinHashLSHCandidateGene
         return stringBuilder.toString();
     }
 
-    public record IndexPair<T, U>(T first, U second) {
+    public record IndexPair<T extends Comparable<T>, U extends Comparable<U>>(T first, U second) {
+
+        public static IndexPair<Integer, Integer> ofNormalized(int a, int b) {
+            return a <= b ? new IndexPair<>(a, b) : new IndexPair<>(b, a);
+        }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            IndexPair<?, ?> indexPair = (IndexPair<?, ?>) o;
-
-            return Objects.equals(first, indexPair.first) && Objects.equals(second, indexPair.second);
+            IndexPair<?, ?> that = (IndexPair<?, ?>) o;
+            return Objects.equals(first, that.first) && Objects.equals(second, that.second);
         }
 
         @Override
@@ -105,5 +108,6 @@ public class MinHashLSHCandidateGeneratorImpl implements MinHashLSHCandidateGene
             return Objects.hash(first, second);
         }
     }
+
 }
 

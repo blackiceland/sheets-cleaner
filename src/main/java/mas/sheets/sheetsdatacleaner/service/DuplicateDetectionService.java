@@ -7,6 +7,6 @@ import java.util.List;
 
 public interface DuplicateDetectionService {
 
-    List<DuplicateMatchResponse> findDuplicates(DuplicateMatchRequest request);
+    DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request);
 
 }

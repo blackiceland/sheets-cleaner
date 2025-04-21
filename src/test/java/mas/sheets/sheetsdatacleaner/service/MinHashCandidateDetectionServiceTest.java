@@ -1,6 +1,6 @@
 package mas.sheets.sheetsdatacleaner.service;
 
-import mas.sheets.sheetsdatacleaner.service.impl.MinHashLSHCandidateGeneratorImpl;
+import mas.sheets.sheetsdatacleaner.service.impl.MinHashCandidateDetectionServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -11,10 +11,10 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-class MinHashLSHCandidateGeneratorTest {
+class MinHashCandidateDetectionServiceTest {
 
     @Autowired
-    private MinHashLSHCandidateGenerator generator;
+    private MinHashCandidateDetectionService generator;
 
     @Test
     void shouldFindSimilarCandidatesInSameBand() {
@@ -27,7 +27,7 @@ class MinHashLSHCandidateGeneratorTest {
                 "anton umakov"
         );
 
-        Set<MinHashLSHCandidateGeneratorImpl.IndexPair<Integer, Integer>> candidatePairs = generator.generateCandidatePairs(normalizedRows);
+        Set<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> candidatePairs = generator.generateCandidatePairs(normalizedRows);
 
         assertThat(candidatePairs).isNotEmpty();
 
@@ -49,7 +49,7 @@ class MinHashLSHCandidateGeneratorTest {
                 "كلمات لا علاقة لها ببعضها"
         );
 
-        Set<MinHashLSHCandidateGeneratorImpl.IndexPair<Integer, Integer>> candidatePairs = new MinHashLSHCandidateGeneratorImpl()
+        Set<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> candidatePairs = new MinHashCandidateDetectionServiceImpl()
                 .generateCandidatePairs(normalizedRows);
 
         assertThat(candidatePairs).isEmpty();

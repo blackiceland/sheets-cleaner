@@ -1,5 +1,6 @@
-package mas.sheets.sheetsdatacleaner.similarity.scorer.impl;
+package mas.sheets.sheetsdatacleaner.similarity.scorer;
 
+import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.LevenshteinScorer;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;

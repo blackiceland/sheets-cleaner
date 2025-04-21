@@ -7,6 +7,6 @@ import java.util.List;
 
 public interface DuplicateController {
 
-    List<DuplicateMatchResponse> detectDuplicates(DuplicateMatchRequest request);
+    DuplicateMatchResponse detectDuplicates(DuplicateMatchRequest request);
 
 }

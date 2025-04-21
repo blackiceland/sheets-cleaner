@@ -23,7 +23,7 @@ public class DuplicateControllerImpl implements DuplicateController {
 
     @Override
     @PostMapping(DUPLICATES)
-    public List<DuplicateMatchResponse> detectDuplicates(@RequestBody DuplicateMatchRequest request) {
+    public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
         log.debug("Detecting duplicates for {} rows", request.rows().size());
 
         return duplicateDetectionService.findDuplicates(request);
