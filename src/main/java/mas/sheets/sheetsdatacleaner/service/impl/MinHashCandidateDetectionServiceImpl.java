@@ -8,106 +8,102 @@ import java.util.*;
 @Service
 public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDetectionService {
 
-    private static final int SIGNATURE_SIZE = 128;
+    private static final int SIGNATURE_SIZE = 64;
     private static final int BAND_SIZE = 4;
-    private static final int NGRAM_SIZE = 3;
+    private static final int BANDS_COUNT = SIGNATURE_SIZE / BAND_SIZE;
+    private static final double MIN_JACCARD_THRESHOLD = 0.3;
 
+    @Override
     public Set<IndexPair<Integer, Integer>> generateCandidatePairs(List<String> normalizedRows) {
-        Map<String, List<Integer>> bandKeyToRowIndexes = new HashMap<>();
+        int n = normalizedRows.size();
+        List<Set<String>> ngramsList = new ArrayList<>(n);
+        List<int[]> signatures = new ArrayList<>(n);
 
-        for (int rowIndex = 0; rowIndex < normalizedRows.size(); rowIndex++) {
-            String rowText = normalizedRows.get(rowIndex);
+        // Precompute n-grams and signatures
+        for (String row : normalizedRows) {
+            String text = row.replace("|", " ");
+            Set<String> ngrams = extractNGrams(text);
+            ngramsList.add(ngrams);
+            signatures.add(computeSignature(ngrams));
+        }
 
-            if (rowText == null || rowText.isBlank()) {
-                continue;
-            }
-
-            Set<String> characterNGrams = extractNGrams(rowText);
-
-            if (characterNGrams.isEmpty()) {
-                continue;
-            }
-
-            int[] minHashVector = computeMinHashSignature(characterNGrams);
-            int totalBands = SIGNATURE_SIZE / BAND_SIZE;
-
-            for (int bandIndex = 0; bandIndex < totalBands; bandIndex++) {
-                String bandKey = buildBandKey(minHashVector, bandIndex);
-                bandKeyToRowIndexes.computeIfAbsent(bandKey, k -> new ArrayList<>()).add(rowIndex);
+        // LSH bucketing
+        Map<String, List<Integer>> buckets = new HashMap<>();
+        for (int i = 0; i < n; i++) {
+            int[] sig = signatures.get(i);
+            for (int band = 0; band < BANDS_COUNT; band++) {
+                StringBuilder key = new StringBuilder();
+                int start = band * BAND_SIZE;
+                for (int j = start; j < start + BAND_SIZE; j++) {
+                    key.append(sig[j]).append('_');
+                }
+                buckets.computeIfAbsent(key.toString(), k -> new ArrayList<>()).add(i);
             }
         }
 
-        Set<IndexPair<Integer, Integer>> candidateRowPairs = new HashSet<>();
-
-        for (List<Integer> rowIndexes : bandKeyToRowIndexes.values()) {
-            for (int i = 0; i < rowIndexes.size(); i++) {
-                for (int j = i + 1; j < rowIndexes.size(); j++) {
-                    int a = rowIndexes.get(i);
-                    int b = rowIndexes.get(j);
-                    candidateRowPairs.add(new IndexPair<>(Math.min(a, b), Math.max(a, b)));
+        // Collect raw candidates
+        Set<IndexPair<Integer, Integer>> raw = new HashSet<>();
+        for (List<Integer> bucket : buckets.values()) {
+            int size = bucket.size();
+            for (int i = 0; i < size; i++) {
+                for (int j = i + 1; j < size; j++) {
+                    raw.add(IndexPair.ofNormalized(bucket.get(i), bucket.get(j)));
                 }
             }
         }
 
-        return candidateRowPairs;
-    }
-
-    private Set<String> extractNGrams(String input) {
-        Set<String> ngrams = new HashSet<>();
-        String padded = " " + input + " ";
-
-        for (int i = 0; i < padded.length() - NGRAM_SIZE + 1; i++) {
-            ngrams.add(padded.substring(i, i + NGRAM_SIZE));
-        }
-
-        return ngrams;
-    }
-
-    private int[] computeMinHashSignature(Set<String> ngrams) {
-        int[] signature = new int[SIGNATURE_SIZE];
-        Arrays.fill(signature, Integer.MAX_VALUE);
-
-        for (String ngram : ngrams) {
-            for (int i = 0; i < SIGNATURE_SIZE; i++) {
-                int hash = Objects.hash(ngram, i);
-                signature[i] = Math.min(signature[i], hash);
+        // Filter by actual Jaccard similarity
+        Set<IndexPair<Integer, Integer>> filtered = new HashSet<>();
+        for (IndexPair<Integer, Integer> pair : raw) {
+            Set<String> a = ngramsList.get(pair.first);
+            Set<String> b = ngramsList.get(pair.second);
+            if (computeJaccard(a, b) >= MIN_JACCARD_THRESHOLD) {
+                filtered.add(pair);
             }
         }
 
-        return signature;
+        return filtered;
     }
 
-    private String buildBandKey(int[] signature, int band) {
-        int start = band * BAND_SIZE;
-        int end = start + BAND_SIZE;
-        StringBuilder stringBuilder = new StringBuilder();
-
-        for (int i = start; i < end; i++) {
-            stringBuilder.append(signature[i]).append("_");
+    private Set<String> extractNGrams(String text) {
+        Set<String> ngrams = new HashSet<>();
+        String padded = " " + text + " ";
+        for (int i = 0; i <= padded.length() - 3; i++) {
+            ngrams.add(padded.substring(i, i + 3));
         }
+        return ngrams;
+    }
 
-        return stringBuilder.toString();
+    private int[] computeSignature(Set<String> ngrams) {
+        int[] sig = new int[SIGNATURE_SIZE];
+        Arrays.fill(sig, Integer.MAX_VALUE);
+        for (String ng : ngrams) {
+            for (int i = 0; i < SIGNATURE_SIZE; i++) {
+                int h = Objects.hash(ng, i);
+                if (h < sig[i]) {
+                    sig[i] = h;
+                }
+            }
+        }
+        return sig;
+    }
+
+    private double computeJaccard(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) {
+            return 0.0;
+        }
+        Set<String> inter = new HashSet<>(a);
+        inter.retainAll(b);
+        Set<String> uni = new HashSet<>(a);
+        uni.addAll(b);
+        return (double) inter.size() / uni.size();
     }
 
     public record IndexPair<T extends Comparable<T>, U extends Comparable<U>>(T first, U second) {
-
-        public static IndexPair<Integer, Integer> ofNormalized(int a, int b) {
-            return a <= b ? new IndexPair<>(a, b) : new IndexPair<>(b, a);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            IndexPair<?, ?> that = (IndexPair<?, ?>) o;
-            return Objects.equals(first, that.first) && Objects.equals(second, that.second);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(first, second);
+        public static IndexPair<Integer, Integer> ofNormalized(int x, int y) {
+            return x <= y ? new IndexPair<>(x, y) : new IndexPair<>(y, x);
         }
     }
-
 }
+
 

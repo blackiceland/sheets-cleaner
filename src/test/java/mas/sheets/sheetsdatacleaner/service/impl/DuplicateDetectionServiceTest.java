@@ -66,26 +66,26 @@ public class DuplicateDetectionServiceTest {
     private static Stream<List<List<String>>> provideTestRows() {
         return Stream.of(
                 List.of(
-                        List.of("anton", "markov", ""),
-                        List.of("markov", "anton", ""),
-                        List.of("anton markov", "antonmarkov@gmail.com", ""),
-                        List.of("a. markov", "anton+dev@gmail.com", ""),
-                        List.of("résumé", "façade", "crème brûlée"),
-                        List.of("张伟", "mhmd", "Иван Иванов"),
-                        List.of("", "", ""),
-                        List.of("a b", "a b", "c d"),
-                        List.of("aleksei petrov", "aleksei.petrov@mail.ru", ""),
-                        List.of("a petrov", "aleksei.petrov+test@mail.ru", ""),
-                        List.of("ул. Ленина, 15", "lenina street 15", "moscow"),
-                        List.of("улица Ленина, д. 15", "15 lenina", "msk"),
-                        List.of("Москва", "Moscow", ""),
-                        List.of("2024-01-01", "01.01.2024", ""),
-                        List.of("john", "smith", ""),
-                        List.of("j. smith", "", ""),
-                        List.of("ivan ivanov", "", "1985"),
-                        List.of("ivanov ivan", "", "85"),
-                        List.of("", "", "no duplicates here"),
-                        List.of("completely", "different", "row")
+                        List.of("anton", "markov", ""), // 0
+                        List.of("markov", "anton", ""), // 1 эта пара должна дойти до нейросети
+                        List.of("anton markov", "antonmarkov@gmail.com", ""), // 2 эта пара должна дойти до нейросети
+                        List.of("a. markov", "anton+dev@gmail.com", ""), // 3
+                        List.of("résumé", "façade", "crème brûlée"), // 4
+                        List.of("张伟", "mhmd", "Иван Иванов"), // 5
+                        List.of("", "", ""), // 6
+                        List.of("a b", "a b", "c d"), // 7
+                        List.of("aleksei petrov", "aleksei.petrov@mail.ru", ""), // 8 хэш не считает дублем
+                        List.of("a petrov", "aleksei.petrov+test@mail.ru", ""), // 9 хэш не считает дублем
+                        List.of("ул. Ленина, 15", "lenina street 15", "moscow"), // 10
+                        List.of("улица Ленина, д. 15", "15 lenina", "msk"), // 11
+                        List.of("Москва", "Moscow", ""), // 12
+                        List.of("2024-01-01", "01.01.2024", ""), // 13
+                        List.of("john", "smith", ""), // 14
+                        List.of("j. smith", "", ""), // 15
+                        List.of("ivan ivanov", "", "1985"), // 16 хэш не считает дублем
+                        List.of("ivanov ivan", "", "85"), // 17 хэш не считает дублем
+                        List.of("", "", "no duplicates here"), // 18
+                        List.of("completely", "different", "row") // 19
                 )
         );
     }

@@ -25,6 +25,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private final List<SimilarityScorer> heuristicScorers;
     private final NeuralSimilarityService neuralSimilarityService;
 
+    private static final double HIGH_CONFIDENCE_THRESHOLD = 0.92;
+    private static final double MEDIUM_CONFIDENCE_THRESHOLD = 0.70;
+
     public DuplicateDetectionServiceImpl(
             MinHashCandidateDetectionService candidateGenerator,
             RowNormalizerService rowNormalizerService,
@@ -37,35 +40,22 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         this.neuralSimilarityService = neuralSimilarityService;
     }
 
-    private static final double HIGH_CONFIDENCE_THRESHOLD = 0.92;
-    private static final double MEDIUM_CONFIDENCE_THRESHOLD = 0.70;
-
-
     @Override
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
         List<String> normalizedRows = rowNormalizerService.normalizeRows(request.rows());
         Set<IndexPair<Integer, Integer>> candidatePairs = candidateGenerator.generateCandidatePairs(normalizedRows);
 
-        Map<Integer, Set<Integer>> similarityMap = new HashMap<>();
+        Map<Integer, Set<Integer>> similarityMap = new TreeMap<>();
         Map<IndexPair<Integer, Integer>, MatchConfidenceLevel> pairConfidence = new HashMap<>();
 
-        processCandidatePairs(normalizedRows, candidatePairs, similarityMap, pairConfidence);
-
-        List<Set<Integer>> clusters = findConnectedComponents(similarityMap);
-
-        return buildResponseFromClusters(clusters, pairConfidence);
-    }
-
-    private void processCandidatePairs(
-            List<String> normalizedRows,
-            Set<IndexPair<Integer, Integer>> candidatePairs,
-            Map<Integer, Set<Integer>> similarityMap,
-            Map<IndexPair<Integer, Integer>, MatchConfidenceLevel> pairConfidence
-    ) {
         for (IndexPair<Integer, Integer> rawPair : candidatePairs) {
-            IndexPair<Integer, Integer> pair = IndexPair.ofNormalized(rawPair.first(), rawPair.second());
-            String left = normalizedRows.get(pair.first());
-            String right = normalizedRows.get(pair.second());
+            int first = Math.min(rawPair.first(), rawPair.second());
+            int second = Math.max(rawPair.first(), rawPair.second());
+
+            IndexPair<Integer, Integer> pair = new IndexPair<>(first, second);
+
+            String left = normalizedRows.get(first);
+            String right = normalizedRows.get(second);
 
             double maxHeuristic = heuristicScorers.stream()
                     .mapToDouble(scorer -> scorer.calculateScore(left, right))
@@ -76,8 +66,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             double score = Math.max(maxHeuristic, neuralScore);
 
             if (score >= MEDIUM_CONFIDENCE_THRESHOLD) {
-                similarityMap.computeIfAbsent(pair.first(), k -> new HashSet<>()).add(pair.second());
-                similarityMap.computeIfAbsent(pair.second(), k -> new HashSet<>()).add(pair.first());
+                similarityMap.computeIfAbsent(first, k -> new TreeSet<>()).add(second);
+                similarityMap.computeIfAbsent(second, k -> new TreeSet<>()).add(first);
 
                 MatchConfidenceLevel level = score >= HIGH_CONFIDENCE_THRESHOLD
                         ? MatchConfidenceLevel.HIGH
@@ -86,27 +76,21 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 pairConfidence.put(pair, level);
             }
         }
-    }
 
-    private DuplicateMatchResponse buildResponseFromClusters(
-            List<Set<Integer>> clusters,
-            Map<IndexPair<Integer, Integer>, MatchConfidenceLevel> pairConfidence
-    ) {
+        List<Set<Integer>> clusters = findConnectedComponents(similarityMap);
+
         List<DuplicateGroup> highConfidenceGroups = new ArrayList<>();
         List<DuplicateGroup> mediumConfidenceGroups = new ArrayList<>();
 
         for (Set<Integer> cluster : clusters) {
-            if (cluster.size() <= 1) {
-                continue;
-            }
-
             List<Integer> sorted = new ArrayList<>(cluster);
-            sorted.sort(Integer::compareTo);
+            Collections.sort(sorted);
+
             int base = sorted.getFirst();
             List<Integer> duplicates = sorted.subList(1, sorted.size());
 
             boolean hasHighConfidence = duplicates.stream()
-                    .map(index -> IndexPair.ofNormalized(base, index))
+                    .map(index -> new IndexPair<>(Math.min(base, index), Math.max(base, index)))
                     .anyMatch(pair -> pairConfidence.getOrDefault(pair, MatchConfidenceLevel.MEDIUM) == MatchConfidenceLevel.HIGH);
 
             MatchConfidenceLevel overallLevel = hasHighConfidence ? MatchConfidenceLevel.HIGH : MatchConfidenceLevel.MEDIUM;
@@ -128,7 +112,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         for (Integer node : graph.keySet()) {
             if (!visited.contains(node)) {
-                Set<Integer> cluster = new HashSet<>();
+                Set<Integer> cluster = new TreeSet<>();
                 Queue<Integer> queue = new LinkedList<>();
                 queue.add(node);
                 visited.add(node);
@@ -151,3 +135,4 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return components;
     }
 }
+
