@@ -85,7 +85,9 @@ public class DuplicateDetectionServiceTest {
                         List.of("ivan ivanov", "", "1985"), // 16 хэш не считает дублем
                         List.of("ivanov ivan", "", "85"), // 17 хэш не считает дублем
                         List.of("", "", "no duplicates here"), // 18
-                        List.of("completely", "different", "row") // 19
+                        List.of("completely", "different", "row"), // 19
+                        List.of("anton markov", "", ""), // 20
+                        List.of("markov anton", "", "")// 21
                 )
         );
     }

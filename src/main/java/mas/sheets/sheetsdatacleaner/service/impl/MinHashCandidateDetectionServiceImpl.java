@@ -8,10 +8,10 @@ import java.util.*;
 @Service
 public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDetectionService {
 
-    private static final int SIGNATURE_SIZE = 64;
+    private static final int SIGNATURE_SIZE = 128;
     private static final int BAND_SIZE = 4;
     private static final int BANDS_COUNT = SIGNATURE_SIZE / BAND_SIZE;
-    private static final double MIN_JACCARD_THRESHOLD = 0.3;
+    private static final double MIN_JACCARD_THRESHOLD = 0.2;
 
     @Override
     public Set<IndexPair<Integer, Integer>> generateCandidatePairs(List<String> normalizedRows) {
@@ -19,7 +19,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         List<Set<String>> ngramsList = new ArrayList<>(n);
         List<int[]> signatures = new ArrayList<>(n);
 
-        // Precompute n-grams and signatures
         for (String row : normalizedRows) {
             String text = row.replace("|", " ");
             Set<String> ngrams = extractNGrams(text);
@@ -27,7 +26,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             signatures.add(computeSignature(ngrams));
         }
 
-        // LSH bucketing
         Map<String, List<Integer>> buckets = new HashMap<>();
         for (int i = 0; i < n; i++) {
             int[] sig = signatures.get(i);
@@ -41,7 +39,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         }
 
-        // Collect raw candidates
         Set<IndexPair<Integer, Integer>> raw = new HashSet<>();
         for (List<Integer> bucket : buckets.values()) {
             int size = bucket.size();
@@ -52,7 +49,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         }
 
-        // Filter by actual Jaccard similarity
         Set<IndexPair<Integer, Integer>> filtered = new HashSet<>();
         for (IndexPair<Integer, Integer> pair : raw) {
             Set<String> a = ngramsList.get(pair.first);
