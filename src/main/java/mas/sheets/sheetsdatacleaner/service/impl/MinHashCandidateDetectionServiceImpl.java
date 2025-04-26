@@ -4,67 +4,102 @@ import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @Service
 public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDetectionService {
 
-    private static final int SIG_SIZE = 128;
+    private static final int SIGNATURE_SIZE = 128;
     private static final int BAND_SIZE = 4;
-    private static final int BANDS = SIG_SIZE / BAND_SIZE;
-    private static final double THRESHOLD = 0.2;
+    private static final int BAND_COUNT = SIGNATURE_SIZE / BAND_SIZE;
+    private static final double MIN_JACCARD = 0.20;
 
     @Override
     public Set<IndexPair<Integer, Integer>> generateCandidatePairs(List<String> rows) {
-        int n = rows.size();
-        List<int[]> sigs = new ArrayList<>(n);
-        List<Set<String>> ngs = new ArrayList<>(n);
+        int totalSize = rows.size();
+
+        List<Set<String>> nGramSets = new ArrayList<>(totalSize);
+        List<int[]> signatureList = new ArrayList<>(totalSize);
 
         for (String row : rows) {
-            String t = " " + row.replace("|", " ") + " ";
-            Set<String> grams = new HashSet<>();
-            for (int i = 0; i <= t.length() - 3; i++) {
-                grams.add(t.substring(i, i + 3));
-            }
-            ngs.add(grams);
-            int[] sig = new int[SIG_SIZE];
-            Arrays.fill(sig, Integer.MAX_VALUE);
-            for (String g : grams) {
-                for (int i = 0; i < SIG_SIZE; i++) {
-                    sig[i] = Math.min(sig[i], Objects.hash(g, i));
-                }
-            }
-            sigs.add(sig);
+            Set<String> trigrams = buildTrigramSet(row);
+            nGramSets.add(trigrams);
+            signatureList.add(buildMinHashSignature(trigrams));
         }
 
-        Map<String, List<Integer>> buckets = new HashMap<>();
-        for (int i = 0; i < n; i++) {
-            int[] sig = sigs.get(i);
-            for (int b = 0; b < BANDS; b++) {
-                String key = IntStream.range(b * BAND_SIZE, (b + 1) * BAND_SIZE)
-                        .mapToObj(j -> sig[j] + "_")
-                        .collect(Collectors.joining());
-                buckets.computeIfAbsent(key, k -> new ArrayList<>()).add(i);
+        Map<String, List<Integer>> lshBuckets = new HashMap<>();
+        for (int rowIndex = 0; rowIndex < totalSize; rowIndex++) {
+            int[] signature = signatureList.get(rowIndex);
+
+            for (int bandIndex = 0; bandIndex < BAND_COUNT; bandIndex++) {
+                String bandKey = buildBandKey(signature, bandIndex);
+                lshBuckets.computeIfAbsent(bandKey, k -> new ArrayList<>()).add(rowIndex);
             }
         }
 
-        Set<IndexPair<Integer, Integer>> out = new HashSet<>();
-        for (List<Integer> bucket : buckets.values()) {
-            for (int i = 0; i < bucket.size(); i++) {
-                for (int j = i + 1; j < bucket.size(); j++) {
-                    int a = bucket.get(i), b = bucket.get(j);
-                    Set<String> A = ngs.get(a), B = ngs.get(b);
-                    Set<String> inter = new HashSet<>(A);
-                    inter.retainAll(B);
-                    int uni = A.size() + B.size() - inter.size();
-                    if (uni > 0 && (double) inter.size() / uni >= THRESHOLD) {
-                        out.add(IndexPair.ofNormalized(a, b));
+        Set<IndexPair<Integer, Integer>> candidatePairs = new HashSet<>();
+        for (List<Integer> bucketRows : lshBuckets.values()) {
+
+            for (int i = 0; i < bucketRows.size(); i++) {
+
+                for (int j = i + 1; j < bucketRows.size(); j++) {
+                    int rowIndexA = bucketRows.get(i);
+                    int rowIndexB = bucketRows.get(j);
+
+                    if (passesJaccardThreshold(nGramSets.get(rowIndexA), nGramSets.get(rowIndexB))) {
+                        candidatePairs.add(IndexPair.ofNormalized(rowIndexA, rowIndexB));
                     }
                 }
             }
         }
-        return out;
+
+        return candidatePairs;
+    }
+
+    private Set<String> buildTrigramSet(String row) {
+        String rowText = " " + row.replace('|', ' ') + " ";
+        Set<String> trigramSet = new HashSet<>();
+
+        for (int i = 0; i <= rowText.length() - 3; i++) {
+            trigramSet.add(rowText.substring(i, i + 3));
+        }
+
+        return trigramSet;
+    }
+
+    private int[] buildMinHashSignature(Set<String> nGramSet) {
+        int[] signature = new int[SIGNATURE_SIZE];
+        Arrays.fill(signature, Integer.MAX_VALUE);
+
+        for (String nGram : nGramSet) {
+            for (int i = 0; i < SIGNATURE_SIZE; i++) {
+                signature[i] = Math.min(signature[i], Objects.hash(nGram, i));
+            }
+        }
+
+        return signature;
+    }
+
+    private String buildBandKey(int[] signature, int bandIndex) {
+        int start = bandIndex * BAND_SIZE;
+        StringBuilder keyBuilder = new StringBuilder();
+
+        for (int i = start; i < start + BAND_SIZE; i++) {
+            keyBuilder.append(signature[i]).append('_');
+        }
+
+        return keyBuilder.toString();
+    }
+
+    private boolean passesJaccardThreshold(Set<String> nGramSetA, Set<String> nGramSetB) {
+        if (nGramSetA.isEmpty() || nGramSetB.isEmpty()) return false;
+
+        Set<String> intersectionSet = new HashSet<>(nGramSetA);
+        intersectionSet.retainAll(nGramSetB);
+
+        int unionSize = nGramSetA.size() + nGramSetB.size() - intersectionSet.size();
+        double jaccard = (double) intersectionSet.size() / unionSize;
+
+        return jaccard >= MIN_JACCARD;
     }
 
     public record IndexPair<T extends Comparable<T>, U extends Comparable<U>>(T first, U second) {
@@ -73,5 +108,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         }
     }
 }
+
+
 
 
