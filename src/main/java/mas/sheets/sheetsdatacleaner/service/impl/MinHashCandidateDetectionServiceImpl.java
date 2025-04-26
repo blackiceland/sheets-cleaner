@@ -11,7 +11,9 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
     private static final int SIGNATURE_SIZE = 128;
     private static final int BAND_SIZE = 4;
     private static final int BAND_COUNT = SIGNATURE_SIZE / BAND_SIZE;
-    private static final double MIN_JACCARD = 0.20;
+    private static final double SHORT_ROW_THRESHOLD = 0.25;
+    private static final double LONG_ROW_THRESHOLD = 0.20;
+    private static final int SHORT_ROW_MAX_LENGTH = 20;
 
     @Override
     public Set<IndexPair<Integer, Integer>> generateCandidatePairs(List<String> rows) {
@@ -19,11 +21,13 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
         List<Set<String>> nGramSets = new ArrayList<>(totalSize);
         List<int[]> signatureList = new ArrayList<>(totalSize);
+        List<Integer> rowLengths = new ArrayList<>(totalSize);
 
         for (String row : rows) {
             Set<String> trigrams = buildTrigramSet(row);
             nGramSets.add(trigrams);
             signatureList.add(buildMinHashSignature(trigrams));
+            rowLengths.add(row.replace("|", " ").length());
         }
 
         Map<String, List<Integer>> lshBuckets = new HashMap<>();
@@ -38,14 +42,20 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
         Set<IndexPair<Integer, Integer>> candidatePairs = new HashSet<>();
         for (List<Integer> bucketRows : lshBuckets.values()) {
-
             for (int i = 0; i < bucketRows.size(); i++) {
-
                 for (int j = i + 1; j < bucketRows.size(); j++) {
                     int rowIndexA = bucketRows.get(i);
                     int rowIndexB = bucketRows.get(j);
 
-                    if (passesJaccardThreshold(nGramSets.get(rowIndexA), nGramSets.get(rowIndexB))) {
+                    Set<String> nGramSetA = nGramSets.get(rowIndexA);
+                    Set<String> nGramSetB = nGramSets.get(rowIndexB);
+
+                    int lengthA = rowLengths.get(rowIndexA);
+                    int lengthB = rowLengths.get(rowIndexB);
+
+                    double dynamicThreshold = selectDynamicThreshold(lengthA, lengthB);
+
+                    if (passesJaccardThreshold(nGramSetA, nGramSetB, dynamicThreshold)) {
                         candidatePairs.add(IndexPair.ofNormalized(rowIndexA, rowIndexB));
                     }
                 }
@@ -90,8 +100,10 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return keyBuilder.toString();
     }
 
-    private boolean passesJaccardThreshold(Set<String> nGramSetA, Set<String> nGramSetB) {
-        if (nGramSetA.isEmpty() || nGramSetB.isEmpty()) return false;
+    private boolean passesJaccardThreshold(Set<String> nGramSetA, Set<String> nGramSetB, double threshold) {
+        if (nGramSetA.isEmpty() || nGramSetB.isEmpty()) {
+            return false;
+        }
 
         Set<String> intersectionSet = new HashSet<>(nGramSetA);
         intersectionSet.retainAll(nGramSetB);
@@ -99,7 +111,12 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         int unionSize = nGramSetA.size() + nGramSetB.size() - intersectionSet.size();
         double jaccard = (double) intersectionSet.size() / unionSize;
 
-        return jaccard >= MIN_JACCARD;
+        return jaccard >= threshold;
+    }
+
+    private double selectDynamicThreshold(int lengthA, int lengthB) {
+        int minLength = Math.min(lengthA, lengthB);
+        return minLength < SHORT_ROW_MAX_LENGTH ? SHORT_ROW_THRESHOLD : LONG_ROW_THRESHOLD;
     }
 
     public record IndexPair<T extends Comparable<T>, U extends Comparable<U>>(T first, U second) {
@@ -108,7 +125,3 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         }
     }
 }
-
-
-
-
