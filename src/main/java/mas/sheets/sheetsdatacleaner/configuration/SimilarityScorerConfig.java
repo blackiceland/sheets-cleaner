@@ -1,7 +1,6 @@
 package mas.sheets.sheetsdatacleaner.configuration;
 
 import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
-import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.JaroWinklerScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.LevenshteinScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.TokenSetRatioScorer;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -17,12 +16,8 @@ public class SimilarityScorerConfig {
 
     @Bean
     @Qualifier("heuristicScorers")
-    public List<SimilarityScorer> heuristicScorers(
-            TokenSetRatioScorer tokenSet,
-            LevenshteinScorer levenshtein,
-            JaroWinklerScorer jaroWinkler
-    ) {
-        return List.of(tokenSet, levenshtein, jaroWinkler);
+    public List<SimilarityScorer> heuristicScorers(TokenSetRatioScorer tokenSet, LevenshteinScorer levenshtein) {
+        return List.of(tokenSet, levenshtein);
     }
 
     @Bean

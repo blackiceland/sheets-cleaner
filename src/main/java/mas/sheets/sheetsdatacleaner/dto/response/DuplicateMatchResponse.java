@@ -1,6 +1,7 @@
 package mas.sheets.sheetsdatacleaner.dto.response;
 
-import java.util.List;
+import mas.sheets.sheetsdatacleaner.service.impl.MinHashCandidateDetectionServiceImpl.IndexPair;
+import java.util.Set;
 
-public record DuplicateMatchResponse(List<DuplicateGroup> highConfidenceGroups, List<DuplicateGroup> mediumConfidenceGroups) {
+public record DuplicateMatchResponse( Set<IndexPair<Integer, Integer>> confirmed) {
 }

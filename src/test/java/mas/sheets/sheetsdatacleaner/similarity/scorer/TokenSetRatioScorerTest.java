@@ -26,7 +26,7 @@ public class TokenSetRatioScorerTest {
         assertThat(actualScore).isCloseTo(expectedScore, within(0.01));
     }
 
-    private static Stream<org.junit.jupiter.params.provider.Arguments> provideTestCases() {
+    private static Stream<Arguments> provideTestCases() {
         return Stream.of(
                 Arguments.of("anton markov", "anton markov", 1.0),
                 Arguments.of("markov anton", "anton markov", 1.0),
@@ -52,9 +52,10 @@ public class TokenSetRatioScorerTest {
         assertThat(actual).isCloseTo(expectedScore, within(0.01));
     }
 
-    private static Stream<org.junit.jupiter.params.provider.Arguments> realisticTestCases() {
+    private static Stream<Arguments> realisticTestCases() {
         return Stream.of(
                 Arguments.of("anton markov | antonmarkov@gmail.com", "markov anton | antonmarkov@gmail.com", 1.0),
+                Arguments.of("anton | markov", "markov anton | antonmarkov@gmail.com", 0.8),
                 Arguments.of("anton markov | antonmarkov@gmail.com", "anton markov | a.markov@gmail.com", 0.66),
                 Arguments.of("a markov | anton@gmail.com", "anton markov | antonmarkov@gmail.com", 0.33),
                 Arguments.of("anton markov", "ivan markov", 0.5),

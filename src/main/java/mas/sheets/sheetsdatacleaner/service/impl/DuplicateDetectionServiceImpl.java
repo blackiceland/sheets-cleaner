@@ -2,137 +2,102 @@ package mas.sheets.sheetsdatacleaner.service.impl;
 
 import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
-import mas.sheets.sheetsdatacleaner.dto.response.DuplicateGroup;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
-import mas.sheets.sheetsdatacleaner.enums.MatchConfidenceLevel;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
 import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
 import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
 import mas.sheets.sheetsdatacleaner.service.RowNormalizerService;
 import mas.sheets.sheetsdatacleaner.service.impl.MinHashCandidateDetectionServiceImpl.IndexPair;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
+import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.LevenshteinScorer;
+import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.TokenSetRatioScorer;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
-@Service
 @Slf4j
+@Service
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
     private final MinHashCandidateDetectionService candidateGenerator;
-    private final RowNormalizerService rowNormalizerService;
-    private final List<SimilarityScorer> heuristicScorers;
-    private final NeuralSimilarityService neuralSimilarityService;
+    private final RowNormalizerService normalizer;
 
-    private static final double HIGH_CONFIDENCE_THRESHOLD = 0.92;
-    private static final double MEDIUM_CONFIDENCE_THRESHOLD = 0.70;
+    @Qualifier("heuristicScorers")
+    private final List<SimilarityScorer> scorers;
+    private final NeuralSimilarityService neuralService;
 
     public DuplicateDetectionServiceImpl(
             MinHashCandidateDetectionService candidateGenerator,
-            RowNormalizerService rowNormalizerService,
-            @Qualifier("heuristicScorers") List<SimilarityScorer> heuristicScorers,
-            NeuralSimilarityService neuralSimilarityService
+            RowNormalizerService normalizer,
+            @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
+            NeuralSimilarityService neuralService
     ) {
         this.candidateGenerator = candidateGenerator;
-        this.rowNormalizerService = rowNormalizerService;
-        this.heuristicScorers = heuristicScorers;
-        this.neuralSimilarityService = neuralSimilarityService;
+        this.normalizer = normalizer;
+        this.scorers = scorers;
+        this.neuralService = neuralService;
     }
 
     @Override
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
-        List<String> normalizedRows = rowNormalizerService.normalizeRows(request.rows());
-        Set<IndexPair<Integer, Integer>> candidatePairs = candidateGenerator.generateCandidatePairs(normalizedRows);
+        List<String> normalizedRows = normalizer.normalizeRows(request.rows());
+        Set<IndexPair<Integer, Integer>> rawPairs = candidateGenerator.generateCandidatePairs(normalizedRows);
 
-        Map<Integer, Set<Integer>> similarityMap = new TreeMap<>();
-        Map<IndexPair<Integer, Integer>, MatchConfidenceLevel> pairConfidence = new HashMap<>();
+        Set<IndexPair<Integer, Integer>> confirmed = new HashSet<>();
 
-        for (IndexPair<Integer, Integer> rawPair : candidatePairs) {
-            int first = Math.min(rawPair.first(), rawPair.second());
-            int second = Math.max(rawPair.first(), rawPair.second());
+        final double HARD_REJECT_MIN = 0.30;
+        final double FAST_REJECT_WEIGHTED = 0.33;
+        final double FAST_CONFIRM_WEIGHTED = 0.65;
+        final double NEURAL_THRESHOLD = 0.70;
 
-            IndexPair<Integer, Integer> pair = new IndexPair<>(first, second);
+        for (IndexPair<Integer, Integer> pair : rawPairs) {
 
-            String left = normalizedRows.get(first);
-            String right = normalizedRows.get(second);
+            String left = normalizedRows.get(pair.first());
+            String right = normalizedRows.get(pair.second());
 
-            double maxHeuristic = heuristicScorers.stream()
-                    .mapToDouble(scorer -> scorer.calculateScore(left, right))
-                    .max()
-                    .orElse(0.0);
+            double tokenScore = 0.0;
+            double levScore = 0.0;
 
-            double neuralScore = neuralSimilarityService.fetchSimilarityScore(left, right);
-            double score = Math.max(maxHeuristic, neuralScore);
-
-            if (score >= MEDIUM_CONFIDENCE_THRESHOLD) {
-                similarityMap.computeIfAbsent(first, k -> new TreeSet<>()).add(second);
-                similarityMap.computeIfAbsent(second, k -> new TreeSet<>()).add(first);
-
-                MatchConfidenceLevel level = score >= HIGH_CONFIDENCE_THRESHOLD
-                        ? MatchConfidenceLevel.HIGH
-                        : MatchConfidenceLevel.MEDIUM;
-
-                pairConfidence.put(pair, level);
-            }
-        }
-
-        List<Set<Integer>> clusters = findConnectedComponents(similarityMap);
-
-        List<DuplicateGroup> highConfidenceGroups = new ArrayList<>();
-        List<DuplicateGroup> mediumConfidenceGroups = new ArrayList<>();
-
-        for (Set<Integer> cluster : clusters) {
-            List<Integer> sorted = new ArrayList<>(cluster);
-            Collections.sort(sorted);
-
-            int base = sorted.getFirst();
-            List<Integer> duplicates = sorted.subList(1, sorted.size());
-
-            boolean hasHighConfidence = duplicates.stream()
-                    .map(index -> new IndexPair<>(Math.min(base, index), Math.max(base, index)))
-                    .anyMatch(pair -> pairConfidence.getOrDefault(pair, MatchConfidenceLevel.MEDIUM) == MatchConfidenceLevel.HIGH);
-
-            MatchConfidenceLevel overallLevel = hasHighConfidence ? MatchConfidenceLevel.HIGH : MatchConfidenceLevel.MEDIUM;
-            DuplicateGroup group = new DuplicateGroup(base, duplicates, overallLevel);
-
-            if (overallLevel == MatchConfidenceLevel.HIGH) {
-                highConfidenceGroups.add(group);
-            } else {
-                mediumConfidenceGroups.add(group);
-            }
-        }
-
-        return new DuplicateMatchResponse(highConfidenceGroups, mediumConfidenceGroups);
-    }
-
-    private List<Set<Integer>> findConnectedComponents(Map<Integer, Set<Integer>> graph) {
-        Set<Integer> visited = new HashSet<>();
-        List<Set<Integer>> components = new ArrayList<>();
-
-        for (Integer node : graph.keySet()) {
-            if (!visited.contains(node)) {
-                Set<Integer> cluster = new TreeSet<>();
-                Queue<Integer> queue = new LinkedList<>();
-                queue.add(node);
-                visited.add(node);
-
-                while (!queue.isEmpty()) {
-                    Integer current = queue.poll();
-                    cluster.add(current);
-
-                    for (Integer neighbor : graph.getOrDefault(current, Set.of())) {
-                        if (visited.add(neighbor)) {
-                            queue.add(neighbor);
-                        }
-                    }
+            for (SimilarityScorer scorer : scorers) {
+                if (scorer instanceof TokenSetRatioScorer tsr) {
+                    tokenScore = tsr.calculateScore(left, right);
+                } else if (scorer instanceof LevenshteinScorer ls) {
+                    levScore = ls.calculateScore(left, right);
                 }
+            }
 
-                components.add(cluster);
+            double minScore = Math.min(tokenScore, levScore);
+            double weighted = 0.8 * tokenScore + 0.2 * levScore;
+
+            if (minScore <= HARD_REJECT_MIN) {
+                log.info("Hard-reject (token={}, lev={}, w={}): {}  |||||  {}", tokenScore, levScore, weighted, left, right);
+                continue;
+            }
+
+            if (weighted <= FAST_REJECT_WEIGHTED) {
+                log.info("Fast-reject (token={}, lev={}, w={}): {}  |||||  {}", tokenScore, levScore, weighted, left, right);
+                continue;
+            }
+
+            if (weighted >= FAST_CONFIRM_WEIGHTED) {
+                log.info("Confirmed (token={}, lev={}, w={}): {}  |||||  {}", tokenScore, levScore, weighted, left, right);
+                confirmed.add(pair);
+                continue;
+            }
+
+            double nnScore = neuralService.fetchSimilarityScore(left, right);
+
+            if (nnScore >= NEURAL_THRESHOLD) {
+                log.info("Neural approve (nn={}): {}  |||||  {}", nnScore, left, right);
+                confirmed.add(pair);
+            } else {
+                log.info("Neural reject  (nn={}): {}  |||||  {}", nnScore, left, right);
             }
         }
 
-        return components;
+        return new DuplicateMatchResponse(confirmed);
     }
 }
-

@@ -16,7 +16,6 @@ import java.time.Duration;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.AssertionsForClassTypes.within;
 
 
 @Tag("integration")
@@ -29,14 +28,18 @@ public class NeuralSimilarityServiceTest {
 
     @BeforeAll
     void setUp() {
-        container = new GenericContainer<>(DockerImageName.parse("sentence-scorer:latest"))
+        container = new GenericContainer<>(DockerImageName.parse("sentence-scorer-crossencoder:latest"))
                 .withExposedPorts(5000)
                 .waitingFor(Wait.forHttp("/health").forStatusCode(200))
                 .withStartupTimeout(Duration.ofSeconds(60));
 
         container.start();
 
-        String url = "http://" + container.getHost() + ":" + container.getMappedPort(5000) + "/similarity";
+        String url = String.format(
+                "http://%s:%d/similarity",
+                container.getHost(),
+                container.getMappedPort(5000)
+        );
 
         scorer = new NeuralSimilarityServiceImpl(
                 new ObjectMapper(),
@@ -54,27 +57,35 @@ public class NeuralSimilarityServiceTest {
     @MethodSource("provideSimilarityCases")
     void shouldFetchSimilarityScoreWithinReasonableDelta(String left, String right, double expected) {
         double actual = scorer.fetchSimilarityScore(left, right);
-        assertThat(actual).isCloseTo(expected, within(0.15));
+        assertThat(actual).isEqualTo(expected);
     }
 
     private static Stream<Arguments> provideSimilarityCases() {
         return Stream.of(
-                Arguments.of("anton markov", "anton markov", 1.0),
-                Arguments.of("anton markov", "markov anton", 0.9),
-                Arguments.of("anton markov | antonmarkov@gmail.com", "anton markov | antonmarkov@gmail.com", 1.0),
-                Arguments.of("anton markov | antonmarkov@gmail.com", "markov anton | antonmarkov@gmail.com", 0.95),
-                Arguments.of("a markov | anton@gmail.com", "anton markov | antonmarkov@gmail.com", 0.8),
-                Arguments.of("résumé | crème brûlée", "resume | creme brulee", 0.95),
-                Arguments.of("zhang wei | mhmd | ivan ivanov", "zhang wei | mhmd | ivan ivanov", 1.0),
-                Arguments.of("zhang wei | mhmd | ivan ivanov", "zhang vay | mohamad | ivanov", 0.8),
+                Arguments.of("anton markov", "anton markov", 0.989969),
+                Arguments.of("anton markov", "markov anton", 0.900221),
+                Arguments.of("anton markov | antonmarkov@gmail.com", "anton markov | antonmarkov@gmail.com", 0.962616),
+                Arguments.of("anton markov | antonmarkov@gmail.com", "markov anton | antonmarkov@gmail.com", 0.960092),
+                Arguments.of("a markov | anton@gmail.com", "anton markov | antonmarkov@gmail.com", 0.940182),
+                Arguments.of("résumé | crème brûlée", "resume | creme brulee", 0.386028),
+                Arguments.of("zhang wei | mhmd | ivan ivanov", "zhang wei | mhmd | ivan ivanov", 0.9729),
+                Arguments.of("zhang wei | mhmd | ivan ivanov", "zhang vay | mohamad | ivanov", 0.714324),
                 Arguments.of("", "anton markov", 0.0),
-                Arguments.of("main st 123 moscow", "moskva 123 street", 0.7),
-                Arguments.of("aleksei petrov | aleksei.petrov@mail.ru", "a petrov | aleksei.petrov+test@mail.ru", 0.85),
-                Arguments.of("ivan petrov", "ivanov petr", 0.85),
-                Arguments.of("sergey nikolaev", "nikolaev sergei", 0.9),
-                Arguments.of("12345", "12345", 1.0),
-                Arguments.of("12345", "54321", 0.5),
-                Arguments.of("anton", "алик", 0.43)
+                Arguments.of("main st 123 moscow", "moskva 123 street", 0.418486),
+                Arguments.of("aleksei petrov | aleksei.petrov@mail.ru", "a petrov | aleksei.petrov+test@mail.ru", 0.765191),
+                Arguments.of("ivan petrov", "ivanov petr", 0.859297),
+                Arguments.of("sergey nikolaev", "nikolaev sergei", 0.823801),
+                Arguments.of("12345", "12345", 0.980848),
+                Arguments.of("12345", "54321", 0.093884),
+                Arguments.of("anton", "алик", 0.134055),
+                Arguments.of("ul lenina 15 | lenina street 15 | moscow", " ulica lenina d 15 | 15 lenina | msk", 0.77503),
+
+                Arguments.of("alex petrov", "moskovskaya 12", 0.006187),
+                Arguments.of("sergey petrov", "tverskaya 8", 0.021578),
+
+                Arguments.of("anton markov", "antonmarkov@gmail.com", 0.751196),
+                Arguments.of("a. markov", "anton+dev@gmail.com", 0.169307)
+
         );
     }
 }
