@@ -22,19 +22,21 @@ import java.util.Set;
 @Service
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
+    private final ExactDuplicateDetectorImpl exactDetector;
     private final MinHashCandidateDetectionService candidateGenerator;
     private final RowNormalizerService normalizer;
-
     @Qualifier("heuristicScorers")
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
 
     public DuplicateDetectionServiceImpl(
+            ExactDuplicateDetectorImpl exactDetector,
             MinHashCandidateDetectionService candidateGenerator,
             RowNormalizerService normalizer,
             @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
             NeuralSimilarityService neuralService
     ) {
+        this.exactDetector = exactDetector;
         this.candidateGenerator = candidateGenerator;
         this.normalizer = normalizer;
         this.scorers = scorers;
@@ -44,22 +46,34 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     @Override
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
         List<String> normalizedRows = normalizer.normalizeRows(request.rows());
-        Set<IndexPair<Integer, Integer>> rawPairs = candidateGenerator.generateCandidatePairs(normalizedRows);
+        var exactResult = exactDetector.detect(normalizedRows);
+        var confirmedExact = exactResult.exactPairs();
+        var remainingRows = exactResult.remainingRows();
+        var originalIndexes = exactResult.originalIndexes();
 
+        Set<IndexPair<Integer, Integer>> confirmed = new HashSet<>(confirmedExact);
         Set<IndexPair<Integer, Integer>> candidates = new HashSet<>();
 
-        final double HARD_REJECT_MIN = 0.30;
-        final double FAST_REJECT_WEIGHTED = 0.33;
-        final double FAST_CONFIRM_WEIGHTED = 0.65;
-        final double NEURAL_THRESHOLD = 0.70;
+        Set<IndexPair<Integer, Integer>> rawPairs = candidateGenerator.generateCandidatePairs(remainingRows);
+
+        double HARD_REJECT_MIN = 0.30;
+        double FAST_REJECT_WEIGHTED = 0.33;
+        double FAST_CONFIRM_WEIGHTED = 0.65;
+        double NEURAL_THRESHOLD = 0.70;
 
         for (IndexPair<Integer, Integer> pair : rawPairs) {
+            int idxA = originalIndexes.get(pair.first());
+            int idxB = originalIndexes.get(pair.second());
+            var originalPair = IndexPair.ofNormalized(idxA, idxB);
 
-            String left = normalizedRows.get(pair.first());
-            String right = normalizedRows.get(pair.second());
+            if (confirmedExact.contains(originalPair)) {
+                continue;
+            }
 
-            double tokenScore = 0.0;
-            double levScore = 0.0;
+            String left = remainingRows.get(pair.first());
+            String right = remainingRows.get(pair.second());
+
+            double tokenScore = 0, levScore = 0;
 
             for (SimilarityScorer scorer : scorers) {
                 if (scorer instanceof TokenSetRatioScorer tsr) {
@@ -70,34 +84,26 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             }
 
             double minScore = Math.min(tokenScore, levScore);
-            double weighted = 0.8 * tokenScore + 0.2 * levScore;
 
             if (minScore <= HARD_REJECT_MIN) {
-                log.info("Hard-reject (token={}, lev={}, w={}): {}  |||||  {}", tokenScore, levScore, weighted, left, right);
                 continue;
             }
 
-            if (weighted <= FAST_REJECT_WEIGHTED) {
-                log.info("Fast-reject (token={}, lev={}, w={}): {}  |||||  {}", tokenScore, levScore, weighted, left, right);
-                continue;
-            }
+            double weighted = 0.8 * tokenScore + 0.2 * levScore;
 
+            // Любые похожие пары, прошедшие порог, добавляем в кандидаты
             if (weighted >= FAST_CONFIRM_WEIGHTED) {
-                log.info("Confirmed (token={}, lev={}, w={}): {}  |||||  {}", tokenScore, levScore, weighted, left, right);
-                candidates.add(pair);
-                continue;
-            }
+                candidates.add(originalPair);
+            } else if (weighted > FAST_REJECT_WEIGHTED) {
+                double nnScore = neuralService.fetchSimilarityScore(left, right);
 
-            double nnScore = neuralService.fetchSimilarityScore(left, right);
-
-            if (nnScore >= NEURAL_THRESHOLD) {
-                log.info("Neural approve (nn={}): {}  |||||  {}", nnScore, left, right);
-                candidates.add(pair);
-            } else {
-                log.info("Neural reject  (nn={}): {}  |||||  {}", nnScore, left, right);
+                if (nnScore >= NEURAL_THRESHOLD) {
+                    candidates.add(originalPair);
+                }
             }
         }
 
-        return new DuplicateMatchResponse(null, candidates);
+        return new DuplicateMatchResponse(confirmed, candidates);
     }
 }
+
