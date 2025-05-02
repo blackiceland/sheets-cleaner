@@ -46,7 +46,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         List<String> normalizedRows = normalizer.normalizeRows(request.rows());
         Set<IndexPair<Integer, Integer>> rawPairs = candidateGenerator.generateCandidatePairs(normalizedRows);
 
-        Set<IndexPair<Integer, Integer>> confirmed = new HashSet<>();
+        Set<IndexPair<Integer, Integer>> candidates = new HashSet<>();
 
         final double HARD_REJECT_MIN = 0.30;
         final double FAST_REJECT_WEIGHTED = 0.33;
@@ -84,7 +84,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
             if (weighted >= FAST_CONFIRM_WEIGHTED) {
                 log.info("Confirmed (token={}, lev={}, w={}): {}  |||||  {}", tokenScore, levScore, weighted, left, right);
-                confirmed.add(pair);
+                candidates.add(pair);
                 continue;
             }
 
@@ -92,12 +92,12 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
             if (nnScore >= NEURAL_THRESHOLD) {
                 log.info("Neural approve (nn={}): {}  |||||  {}", nnScore, left, right);
-                confirmed.add(pair);
+                candidates.add(pair);
             } else {
                 log.info("Neural reject  (nn={}): {}  |||||  {}", nnScore, left, right);
             }
         }
 
-        return new DuplicateMatchResponse(confirmed);
+        return new DuplicateMatchResponse(null, candidates);
     }
 }

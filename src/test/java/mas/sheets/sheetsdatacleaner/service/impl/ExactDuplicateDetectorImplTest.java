@@ -68,29 +68,21 @@ class ExactDuplicateDetectorImplTest {
         var result = detector.detect(rows);
         Set<IndexPair<Integer,Integer>> pairs = result.exactPairs();
 
-        /* A: имя-фамилия (0-4) должно быть ≥1 пары */
         assertThat(pairsInRange(pairs, 0, 5)).isGreaterThanOrEqualTo(1);
 
-        /* B: адрес (5-7) */
         assertThat(pairsInRange(pairs, 5, 8)).isGreaterThanOrEqualTo(1);
 
-        /* C: точная почта (8-9) — ровно одна пара 8-9 */
         assertThat(pairs).contains(IndexPair.ofNormalized(8, 9));
 
-        /* D: цифры 123456 (10-12) три строки ⇒ ≥3 пар */
         assertThat(pairsInRange(pairs, 10, 13)).isGreaterThanOrEqualTo(3);
 
-        /* E: дата 2024-01-01 (13-15) */
         assertThat(pairsInRange(pairs, 13, 16)).isGreaterThanOrEqualTo(1);
 
-        /* F: паспорт-ID (16-18) */
         assertThat(pairsInRange(pairs, 16, 19)).isGreaterThanOrEqualTo(1);
 
-        /* шум остался */
         assertThat(result.remainingRows())
                 .contains("foo bar", "张伟", "mhmd ibn ahmed");
 
-        /* после удаления дублей строк стало меньше */
         assertThat(result.remainingRows().size()).isLessThan(rows.size());
     }
 }

@@ -6,6 +6,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class LevenshteinScorer implements SimilarityScorer {
 
+    private static final double SIMILARITY_THRESHOLD = 0.3;
+
     @Override
     public double calculateScore(String left, String right) {
         String cleanLeft = sanitizeInput(left);
@@ -15,8 +17,13 @@ public class LevenshteinScorer implements SimilarityScorer {
             return 0.0;
         }
 
-        int editDistance = calculateLevenshteinDistance(cleanLeft, cleanRight);
         int maximumLength = Math.max(cleanLeft.length(), cleanRight.length());
+        int maxAllowedDistance = (int) Math.ceil(maximumLength * (1.0 - SIMILARITY_THRESHOLD));
+        int editDistance = calculateLevenshteinDistanceWithThreshold(cleanLeft, cleanRight, maxAllowedDistance);
+
+        if (editDistance == -1) {
+            return 0.0;
+        }
 
         if (maximumLength == 0) {
             return 1.0;
@@ -33,35 +40,48 @@ public class LevenshteinScorer implements SimilarityScorer {
         return input.replace("|", "").trim();
     }
 
-    private int calculateLevenshteinDistance(String left, String right) {
+    private int calculateLevenshteinDistanceWithThreshold(String left, String right, int threshold) {
         int leftLength = left.length();
         int rightLength = right.length();
 
-        int[][] distanceMatrix = new int[leftLength + 1][rightLength + 1];
-
-        for (int row = 0; row <= leftLength; row++) {
-            distanceMatrix[row][0] = row;
+        if (Math.abs(leftLength - rightLength) > threshold) {
+            return -1;
         }
 
-        for (int column = 0; column <= rightLength; column++) {
-            distanceMatrix[0][column] = column;
+        int[] previousRow = new int[rightLength + 1];
+        int[] currentRow = new int[rightLength + 1];
+
+        for (int j = 0; j <= rightLength; j++) {
+            previousRow[j] = j;
         }
 
-        for (int row = 1; row <= leftLength; row++) {
-            for (int column = 1; column <= rightLength; column++) {
-                char leftChar = left.charAt(row - 1);
-                char rightChar = right.charAt(column - 1);
+        for (int i = 1; i <= leftLength; i++) {
+            currentRow[0] = i;
+            int minValue = i;
 
-                int substitutionCost = leftChar == rightChar ? 0 : 1;
+            for (int j = 1; j <= rightLength; j++) {
+                char leftChar = left.charAt(i - 1);
+                char rightChar = right.charAt(j - 1);
 
-                int insertion = distanceMatrix[row][column - 1] + 1;
-                int deletion = distanceMatrix[row - 1][column] + 1;
-                int substitution = distanceMatrix[row - 1][column - 1] + substitutionCost;
+                int substitutionCost = (leftChar == rightChar) ? 0 : 1;
 
-                distanceMatrix[row][column] = Math.min(Math.min(insertion, deletion), substitution);
+                int insertion = currentRow[j - 1] + 1;
+                int deletion = previousRow[j] + 1;
+                int substitution = previousRow[j - 1] + substitutionCost;
+
+                currentRow[j] = Math.min(Math.min(insertion, deletion), substitution);
+                minValue = Math.min(minValue, currentRow[j]);
             }
+
+            if (minValue > threshold) {
+                return -1;
+            }
+
+            int[] tempRow = previousRow;
+            previousRow = currentRow;
+            currentRow = tempRow;
         }
 
-        return distanceMatrix[leftLength][rightLength];
+        return previousRow[rightLength];
     }
 }
