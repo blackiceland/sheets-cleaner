@@ -18,24 +18,14 @@ import java.util.stream.Collectors;
 @Service
 public class RowNormalizerServiceImpl implements RowNormalizerService {
 
-    /* ----------- регэкспы и константы ----------- */
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
-    /**
-     * вся пунктуация, кроме @, чтобы не ломать локальный email‑детектор
-     */
-    private static final Pattern PUNCTUATION = Pattern.compile("[\\p{Punct}&&[^@]]+");
-    /**
-     * оставляем буквы, цифры, пробел, @ . _ -
-     */
-    private static final Pattern NON_ASCII =
-            Pattern.compile("[^\\p{IsAlphabetic}\\d\\s@._-]");
-
+    private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}&&[^@._\\-]+");
+    private static final Pattern NON_ASCII = Pattern.compile("[^\\p{IsAlphabetic}\\d\\s@._\\-+#]");
     private static final Pattern GMAIL_PLUS = Pattern.compile("\\+.*$");
 
     private static final int PARALLEL_THRESHOLD = 10_000;
 
-    private static final EmailValidator EMAIL_VALIDATOR =
-            EmailValidator.getInstance(false, false);
+    private static final EmailValidator EMAIL_VALIDATOR = EmailValidator.getInstance(false, false);
 
     private static final Set<String> TAGGABLE_DOMAINS = Set.of(
             "gmail.com",
@@ -46,22 +36,20 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
             "fastmail.com"
     );
 
-    private static final ThreadLocal<Transliterator> LATIN =
-            ThreadLocal.withInitial(() ->
-                    Transliterator.getInstance("Any-Latin; NFD; [:Nonspacing Mark:] Remove; NFC"));
+    private static final ThreadLocal<Transliterator> LATIN = ThreadLocal.withInitial(() ->
+            Transliterator.getInstance("Any-Latin; NFD; [:Nonspacing Mark:] Remove; NFC"));
 
-    /* ------------- публичный API ------------- */
 
     @Override
     public List<String> normalizeRows(List<List<String>> rows) {
         if (rows == null || rows.isEmpty()) return Collections.emptyList();
 
-        return (rows.size() > PARALLEL_THRESHOLD ? rows.parallelStream() : rows.stream())
+        return (rows.size() > PARALLEL_THRESHOLD
+                ? rows.parallelStream()
+                : rows.stream())
                 .map(this::normalizeRow)
                 .toList();
     }
-
-    /* ------------- private helpers ------------- */
 
     private String normalizeRow(List<String> cells) {
         if (cells == null || cells.isEmpty()) return "";
@@ -79,22 +67,20 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
                 .toLowerCase(Locale.ROOT)
                 .replace("\u00A0", " ")
                 .trim();
+
         if (text.isEmpty()) return "";
 
         return isEmail(text) ? normalizeEmail(text) : normalizeText(text);
     }
 
-    /* -------- текст -------- */
-
     private String normalizeText(String text) {
-        text = LATIN.get().transliterate(text);            // кириллица → Latin
-        text = PUNCTUATION.matcher(text).replaceAll(" ");  // пунктуация → пробел
-        text = WHITESPACE.matcher(text).replaceAll(" ");   // схлопнуть пробелы
-        text = NON_ASCII.matcher(text).replaceAll("");     // убрать мусор
+        text = LATIN.get().transliterate(text);
+        text = PUNCTUATION.matcher(text).replaceAll(" ");
+        text = WHITESPACE.matcher(text).replaceAll(" ");
+        text = NON_ASCII.matcher(text).replaceAll("");
+
         return text.trim();
     }
-
-    /* -------- email -------- */
 
     private boolean isEmail(String v) {
         int at = v.lastIndexOf('@');
@@ -117,14 +103,13 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
         String local = email.substring(0, at);
         String domain = IDN.toASCII(email.substring(at + 1).toLowerCase(Locale.ROOT));
 
-        /* unify googlemail → gmail */
         if ("googlemail.com".equals(domain)) domain = "gmail.com";
 
-        /* Gmail‑style aliasing */
         if (TAGGABLE_DOMAINS.contains(domain)) {
             local = local.replace(".", "");
             local = GMAIL_PLUS.matcher(local).replaceAll("");
         }
+
         return local + '@' + domain;
     }
 }

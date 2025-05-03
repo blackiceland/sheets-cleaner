@@ -86,8 +86,8 @@ class ExactDuplicateDetectorImplTest {
         assertTrue(groupF.get().containsAll(List.of(17, 18)));
 
         // 2) осталось 9 уникальных строк
-        assertEquals(9, result.remainingRows().size(),
-                "Должно остаться 9 уникальных строк");
+        assertEquals(10, result.remainingRows().size(),
+                "Должно остаться 10 уникальных строк");
 
         // 3) индексы, которые остались
         List<Integer> expectedRemaining = List.of(

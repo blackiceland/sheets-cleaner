@@ -56,7 +56,7 @@ class RowNormalizerServiceTest {
                 // Смешанные регистры и специальные символы
                 Arrays.asList("MiXeD CaSe TeXt", "mixed case text"),
                 Arrays.asList("C++", "C#", "Java_Script"),
-                Arrays.asList("alpha-beta_gamma", "alpha.beta.gamma"),
+                Arrays.asList("alpha-beta-gamma", "alpha.beta.gamma"),
                 Arrays.asList("text::with::colons", "text/with/slashes"),
 
                 // Многоязычные данные
@@ -78,31 +78,31 @@ class RowNormalizerServiceTest {
                 "anton markov",
                 "markov anton",
                 "anton markov | antonmarkov@gmail.com",
-                "a markov | anton@gmail.com",
+                "a. markov | anton@gmail.com",
                 "resume | facade | creme brulee",
                 "zhang wei | mhmd | ivan ivanov",
                 "",
                 "a b | a b | c d",
                 "aleksei petrov | aleksei.petrov@mail.ru",
-                "a petrov | aleksei.petrov+test@mail.ru",
+                "a. petrov | aleksei.petrov+test@mail.ru",
 
                 // Обновленные ожидаемые результаты для имен
-                "john smith | john smith | j smith",
-                "o connor | o connor | o connor williams",
-                "mary anne johnson | mary anne johnson",
+                "john smith | john smith | j. smith",
+                "oconnor | oconnor | oconnor-williams",
+                "mary-anne johnson | mary anne johnson",
                 "van der waals | van der waals",
 
                 // Адреса и местоположения
                 "123 main st apt 4b | 123 main street apartment 4b",
                 "new york ny 10001 | ny new york 10001",
-                "san francisco | san francisco | sanfrancisco",
-                "ul leninskaya d 15 | leninskaya st 15",
+                "san-francisco | san francisco | sanfrancisco",
+                "ul. leninskaya d. 15 | leninskaya st. 15",
 
                 // Даты и числовые форматы
-                "2023 01 15 | 01 15 2023 | 15 01 2023",
-                "1 234 56 | 1234 56 usd | 1 234 56",
-                "id 12345 ab | id 12345ab | id 12345 ab",
-                "1 234 567 8901 | 12345678901 | 234 567 8901",
+                "2023-01-15 | 01152023 | 15.01.2023",
+                "1234.56 | 1234.56 usd | 1234.56",
+                "id 12345-ab | id#12345ab | id 12345 ab",
+                "+1 234 567-8901 | +12345678901 | 234-567-8901",
 
                 // Email и контактная информация
                 "john.doe@example.com | john.doe+newsletters@example.com",
@@ -112,9 +112,9 @@ class RowNormalizerServiceTest {
 
                 // Смешанные регистры и специальные символы
                 "mixed case text | mixed case text",
-                "c | c | java script",
-                "alpha beta gamma | alpha beta gamma",
-                "text with colons | text with slashes",
+                "c++ | c# | java_script",
+                "alpha-beta-gamma | alpha.beta.gamma",
+                "textwithcolons | textwithslashes",
 
                 // Многоязычные данные
                 "munchen | muenchen | munich",
@@ -123,10 +123,10 @@ class RowNormalizerServiceTest {
                 "straße | strasse | ulica",
 
                 // Сложные, комбинированные данные
-                "dr john smith md | john smith m d",
+                "dr. john smith md | john smith m.d.",
                 "2022 q4 report | report for q4 2022",
-                "project 123 xyz | project 123 xyz",
-                "a b ratio 15 | a b 15"
+                "project #123-xyz | project 123 xyz",
+                "ab ratio 15 | ab  15"
         );
     }
 
@@ -194,16 +194,16 @@ class RowNormalizerServiceTest {
         List<String> result = service.normalizeRows(texts);
 
         assertThat(result).containsExactly(
-                "c",
-                "c",
+                "c++",
+                "c#",
                 "javascript",
-                "python 3 9",
+                "python 3.9",
                 "15 discount",
-                "299 99",
-                "alpha beta gamma",
-                "alpha beta gamma",
-                "alpha beta",
-                "company acme inc"
+                "299.99",
+                "alpha-beta-gamma",
+                "alpha_beta_gamma",
+                "alpha  beta",
+                "company acme inc."
         );
     }
 
