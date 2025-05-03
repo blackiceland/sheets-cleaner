@@ -12,18 +12,18 @@ import org.springframework.web.bind.annotation.RestController;
 
 import static mas.sheets.sheetsdatacleaner.util.CleanerUtils.DUPLICATES;
 
-@Slf4j
-@RestController
-@RequiredArgsConstructor
-public class DuplicateControllerImpl implements DuplicateController {
-
-    private final DuplicateDetectionService duplicateDetectionService;
-
-    @Override
-    @PostMapping(DUPLICATES)
-    public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
-        log.debug("Detecting duplicates for {} rows", request.rows().size());
-
-        return duplicateDetectionService.findDuplicates(request);
-    }
-}
+//@Slf4j
+//@RestController
+//@RequiredArgsConstructor
+//public class DuplicateControllerImpl implements DuplicateController {
+//
+//    private final DuplicateDetectionService duplicateDetectionService;
+//
+//    @Override
+//    @PostMapping(DUPLICATES)
+//    public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
+//        log.debug("Detecting duplicates for {} rows", request.rows().size());
+//
+//        return duplicateDetectionService.findDuplicates(request);
+//    }
+//}

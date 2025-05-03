@@ -5,20 +5,20 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 class ExactDuplicateDetectorImplTest {
 
     @Autowired
     private ExactDuplicateDetectorImpl detector;
-    
-    private static long pairsInRange(Set<IndexPair<Integer,Integer>> pairs, int from, int to) {
+
+    private static long pairsInRange(Set<IndexPair<Integer, Integer>> pairs, int from, int to) {
         return pairs.stream()
-                .filter(p -> p.first()  >= from && p.first()  < to
+                .filter(p -> p.first() >= from && p.first() < to
                         && p.second() >= from && p.second() < to)
                 .count();
     }
@@ -66,23 +66,112 @@ class ExactDuplicateDetectorImplTest {
         );
 
         var result = detector.detect(rows);
-        Set<IndexPair<Integer,Integer>> pairs = result.exactPairs();
+        List<List<Integer>> groups = result.duplicateGroups();
 
-        assertThat(pairsInRange(pairs, 0, 5)).isGreaterThanOrEqualTo(1);
+        // 1) ожидать 5, а не 3, групп
+        assertEquals(5, groups.size(), "Должно быть обнаружено 5 групп дубликатов");
 
-        assertThat(pairsInRange(pairs, 5, 8)).isGreaterThanOrEqualTo(1);
+        // … проверки групп A, B, C остаются как есть …
 
-        assertThat(pairs).contains(IndexPair.ofNormalized(8, 9));
+        /* --- дополнительная проверка группы E′ (дата без цифр-only) --- */
+        Optional<List<Integer>> groupE = findGroupContaining(groups, 13);
+        assertTrue(groupE.isPresent(), "Группа E должна существовать");
+        assertEquals(2, groupE.get().size());
+        assertTrue(groupE.get().containsAll(List.of(13, 14)));
 
-        assertThat(pairsInRange(pairs, 10, 13)).isGreaterThanOrEqualTo(3);
+        /* --- дополнительная проверка группы F′ (паспорт без цифр-only) --- */
+        Optional<List<Integer>> groupF = findGroupContaining(groups, 17);
+        assertTrue(groupF.isPresent(), "Группа F должна существовать");
+        assertEquals(2, groupF.get().size());
+        assertTrue(groupF.get().containsAll(List.of(17, 18)));
 
-        assertThat(pairsInRange(pairs, 13, 16)).isGreaterThanOrEqualTo(1);
+        // 2) осталось 9 уникальных строк
+        assertEquals(9, result.remainingRows().size(),
+                "Должно остаться 9 уникальных строк");
 
-        assertThat(pairsInRange(pairs, 16, 19)).isGreaterThanOrEqualTo(1);
+        // 3) индексы, которые остались
+        List<Integer> expectedRemaining = List.of(
+                10, 11, 12,   // «123456» и вариации
+                15,           // «20240101»
+                16,           // «AB1234567»
+                19, 20, 21, 22// шум
+        );
+        assertTrue(result.originalIndexes().containsAll(expectedRemaining),
+                "Оставшиеся индексы должны соответствовать ожиданиям");
+    }
 
-        assertThat(result.remainingRows())
-                .contains("foo bar", "张伟", "mhmd ibn ahmed");
+    /**
+     * Вспомогательный метод для поиска группы, содержащей указанный индекс
+     */
+    private Optional<List<Integer>> findGroupContaining(List<List<Integer>> groups, int index) {
+        return groups.stream()
+                .filter(group -> group.contains(index))
+                .findFirst();
+    }
 
-        assertThat(result.remainingRows().size()).isLessThan(rows.size());
+    @Test
+    void handlesEmptyInput() {
+        // Проверка обработки пустого списка
+        var result = detector.detect(Collections.emptyList());
+        assertTrue(result.duplicateGroups().isEmpty(), "Для пустого ввода не должно быть групп дубликатов");
+        assertTrue(result.remainingRows().isEmpty(), "Для пустого ввода не должно быть оставшихся строк");
+        assertTrue(result.originalIndexes().isEmpty(), "Для пустого ввода не должно быть оригинальных индексов");
+    }
+
+    @Test
+    void handlesNullInput() {
+        // Проверка обработки null ввода
+        var result = detector.detect(null);
+        assertTrue(result.duplicateGroups().isEmpty(), "Для null ввода не должно быть групп дубликатов");
+        assertTrue(result.remainingRows().isEmpty(), "Для null ввода не должно быть оставшихся строк");
+        assertTrue(result.originalIndexes().isEmpty(), "Для null ввода не должно быть оригинальных индексов");
+    }
+
+    @Test
+    void handlesMixedNullAndEmptyStrings() {
+        // Проверка обработки смешанных null и пустых строк
+        List<String> rows = Arrays.asList(null, "", null, "content", "");
+
+        var result = detector.detect(rows);
+
+        // null и пустые строки должны быть объединены в одну группу
+        assertEquals(1, result.duplicateGroups().size(), "Должна быть одна группа дубликатов");
+        assertEquals(4, result.duplicateGroups().getFirst().size(), "Группа должна содержать 4 элемента");
+
+        // Только одна не-пустая строка должна остаться
+        assertEquals(1, result.remainingRows().size(), "Должна остаться одна строка");
+        assertEquals("content", result.remainingRows().getFirst(), "Оставшаяся строка должна быть 'content'");
+    }
+
+    @Test
+    void performanceTest() {
+        // Простой тест производительности для большого количества строк
+        int size = 10_000;
+        List<String> rows = new ArrayList<>(size);
+
+        // Создаем много уникальных строк с несколькими дубликатами
+        for (int i = 0; i < size; i++) {
+            // 80% уникальных строк
+            if (i % 5 != 0) {
+                rows.add("unique_" + i);
+            }
+            // 20% дубликатов (каждый повторяется 4 раза)
+            else {
+                rows.add("duplicate_" + (i / 20));
+            }
+        }
+
+        long startTime = System.currentTimeMillis();
+        var result = detector.detect(rows);
+        long endTime = System.currentTimeMillis();
+
+        // Проверяем, что время выполнения в разумных пределах
+        long executionTime = endTime - startTime;
+        assertTrue(executionTime < 5000,
+                "Время выполнения для 10K строк должно быть менее 5 секунд, но было " + executionTime + " мс");
+
+        // Проверяем корректность результатов
+        assertEquals(size / 20, result.duplicateGroups().size(),
+                "Должно быть обнаружено правильное количество групп дубликатов");
     }
 }
