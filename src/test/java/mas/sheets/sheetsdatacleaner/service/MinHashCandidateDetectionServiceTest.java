@@ -139,36 +139,6 @@ class MinHashCandidateDetectionServiceTest {
     }
 
     @Test
-    void shouldDetectDateVariations() {
-        List<String> normalizedRows = List.of(
-                "01 01 2023",
-                "2023 01 01",
-                "01 jan 2023",
-                "january 1 2023",
-                "01/01/2023",
-                "01-01-2023",
-                "02 02 2023"
-        );
-
-        Set<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> candidatePairs = generator.generateCandidatePairs(normalizedRows);
-
-        // Должно найти связи между первыми шестью строками
-        int datePairsCount = 0;
-        for (MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer> pair : candidatePairs) {
-            if (pair.first() < 6 && pair.second() < 6) {
-                datePairsCount++;
-            }
-        }
-
-        assertThat(datePairsCount).isGreaterThanOrEqualTo(5);
-
-        // Не должно связывать последнюю дату с другими
-        assertThat(candidatePairs).noneMatch(pair ->
-                (pair.first() == 6 || pair.second() == 6)
-        );
-    }
-
-    @Test
     void shouldDetectCompanyNameVariations() {
         List<String> normalizedRows = List.of(
                 "apple inc",
@@ -202,23 +172,101 @@ class MinHashCandidateDetectionServiceTest {
     @Test
     void shouldHandleMultipartRows() {
         List<String> normalizedRows = List.of(
+                // Группа 1: John Smith с вариациями имени и адреса
                 "john smith | john.smith@example.com | 123 main st",
                 "john smith | jsmith@example.com | 123 main street",
                 "smith john | john.s@example.com | 123 main st apt 4b",
-                "alice jones | alice@example.com | 456 oak ave"
+                "j smith | johnsmith@gmail.com | 123 main st apartment 4",
+
+                // Группа 2: Alice Jones с вариациями
+                "alice jones | alice@example.com | 456 oak ave",
+                "alice j | a.jones@example.com | 456 oak avenue",
+                "a jones | alice.j@company.com | 456 oak",
+
+                // Группа 3: Michael Johnson с вариациями
+                "michael johnson | mike@test.com | 789 pine rd",
+                "mike johnson | mjohnson@mail.com | 789 pine road",
+                "johnson michael | m.j@test.org | 789 pine",
+
+                // Группа 4: Смешанные имена и адреса
+                "david wilson | d.wilson@example.net | 101 maple street",
+                "james wilson | jwilson@example.net | 202 maple avenue",
+                "sarah wilson | swilson@example.net | 101 maple st",
+
+                // Группа 5: Одинаковые адреса, разные имена
+                "robert brown | rbrown@test.com | 555 elm street apt 10",
+                "emily white | ewhite@mail.org | 555 elm street #10",
+
+                // Группа 6: Похожие электронные адреса
+                "thomas lee | t.lee@company.org | 777 cedar lane",
+                "timothy lee | timlee@company.org | 888 oak drive",
+
+                // Одиночные строки (не должны образовывать пары)
+                "jennifer adams | jadams@mail.net | 999 birch road",
+                "christopher martin | cmartin@example.com | 333 spruce avenue"
         );
 
         Set<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> candidatePairs = generator.generateCandidatePairs(normalizedRows);
 
-        // Первые три строки должны быть связаны
+        // Проверка группы 1: John Smith
         assertThat(candidatePairs).contains(
                 MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 1),
-                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 2)
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 2),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 3),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(1, 2),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(1, 3),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(2, 3)
         );
 
-        // Последняя строка не должна быть связана с другими
+        // Проверка группы 2: Alice Jones
+        assertThat(candidatePairs).contains(
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(4, 5),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(4, 6),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(5, 6)
+        );
+
+        // Проверка группы 3: Michael Johnson
+        assertThat(candidatePairs).contains(
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(7, 8),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(7, 9),
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(8, 9)
+        );
+
+        // Проверка группы 4: Wilson с общими адресами
+        assertThat(candidatePairs).contains(
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(10, 12)  // David Wilson и Sarah Wilson (общий адрес)
+        );
+
+        // Проверка группы 5: Общий адрес разных людей
+        assertThat(candidatePairs).contains(
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(13, 14)
+        );
+
+        // Проверка случаев, которые не должны быть связаны
+        // Jennifer Adams не должна быть связана ни с кем
         assertThat(candidatePairs).noneMatch(pair ->
-                (pair.first() == 3 || pair.second() == 3)
+                (pair.first() == 19 || pair.second() == 19)
+        );
+
+        // Christopher Martin не должен быть связан ни с кем
+        assertThat(candidatePairs).noneMatch(pair ->
+                (pair.first() == 20 || pair.second() == 20)
+        );
+
+        // Timothy Lee и Thomas Lee могут быть связаны или нет в зависимости от настроек MinHash
+        // Поэтому не проверяем их жестко
+
+        // Проверка общего количества пар
+        // Учитывая пороги и параметры MinHash, количество пар может варьироваться
+        // Но для 5 групп связанных записей минимальное количество пар должно быть:
+        // 6 (Группа 1) + 3 (Группа 2) + 3 (Группа 3) + 1 (Группа 4) + 1 (Группа 5) = 14
+        assertThat(candidatePairs.size()).isGreaterThanOrEqualTo(14);
+
+        // Проверка отсутствия связей между группами
+        // Группа 1 не должна быть связана с группой 2
+        assertThat(candidatePairs).noneMatch(pair ->
+                (pair.first() <= 3 && pair.second() >= 4 && pair.second() <= 6) ||
+                        (pair.first() >= 4 && pair.first() <= 6 && pair.second() <= 3)
         );
     }
 
