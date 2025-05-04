@@ -180,35 +180,34 @@ public class DuplicateDetectionServiceTest {
                         List.of("markov anton", "", ""), // 21
                         List.of("alex petrov", "moskovskaya 12", "01.01.1990"), // 22
                         List.of("sergey petrov", "tverskaya 8", "02.02.1985"), // 23
-                        List.of("ivan petrov", "ivanov petr", "") // 24
+                        List.of("ivan petrov", "ivanov petr", ""), // 24
 
-//                        // Дополнительные тестовые данные для улучшения покрытия
-//                        List.of("Michael Brown", "mbrown@example.com", ""), // 25
-//                        List.of("Mike Brown", "michael.brown@example.com", ""), // 26
-//                        List.of("123-456-7890", "", ""), // 27
-//                        List.of("+1 (123) 456-7890", "", ""), // 28
-//                        List.of("Robert Smith", "", "1977-05-15"), // 29
-//                        List.of("Bob Smith", "", "15.05.1977"), // 30
-//                        List.of("Johnson & Johnson Co.", "", ""), // 31
-//                        List.of("Johnson and Johnson Company", "", ""), // 32
-//                        List.of("San Francisco, CA", "", "USA"), // 33
-//                        List.of("SF, California", "", "United States"), // 34
-//                        List.of("software engineer", "5 years experience", ""), // 35
-//                        List.of("senior software developer", "5+ yrs exp", ""), // 36
-//                        List.of("maria.garcia@gmail.com", "", ""), // 37
-//                        List.of("m.garcia+work@gmail.com", "", ""), // 38
-//                        List.of("202-555-0123", "Washington DC", ""), // 39
-//                        List.of("(202) 555-0123", "Washington, D.C.", ""), // 40
-//                        List.of("St. Petersburg", "Russia", ""), // 41
-//                        List.of("Saint-Petersburg", "RU", ""), // 42
-//                        List.of("Dr. William Jones", "MD", "Cardiology"), // 43
-//                        List.of("William Jones, M.D.", "Cardiologist", ""), // 44
-//                        List.of("100 Main St", "Apt 3B", "New York, NY"), // 45
-//                        List.of("100 Main Street", "Apartment 3B", "NYC"), // 46
-//                        List.of("Project Manager", "IT Department", "2010-2015"), // 47
-//                        List.of("PM", "Information Technology", "2010-15"), // 48
-//                        List.of("Apple Inc.", "", "Technology"), // 49
-//                        List.of("Apple Incorporated", "", "Tech") // 50
+                        List.of("Michael Brown", "mbrown@example.com", ""), // 25
+                        List.of("Mike Brown", "michael.brown@example.com", ""), // 26
+                        List.of("123-456-7890", "", ""), // 27
+                        List.of("+1 (123) 456-7890", "", ""), // 28
+                        List.of("Robert Smith", "", "1977-05-15"), // 29
+                        List.of("Bob Smith", "", "15.05.1977"), // 30
+                        List.of("Johnson & Johnson Co.", "", ""), // 31
+                        List.of("Johnson and Johnson Company", "", ""), // 32
+                        List.of("San Francisco, CA", "", "USA"), // 33
+                        List.of("SF, California", "", "United States"), // 34
+                        List.of("software engineer", "5 years experience", ""), // 35
+                        List.of("senior software developer", "5+ yrs exp", ""), // 36
+                        List.of("maria.garcia@gmail.com", "", ""), // 37
+                        List.of("m.garcia+work@gmail.com", "", ""), // 38
+                        List.of("202-555-0123", "Washington DC", ""), // 39
+                        List.of("(202) 555-0123", "Washington, D.C.", ""), // 40
+                        List.of("St. Petersburg", "Russia", ""), // 41
+                        List.of("Saint-Petersburg", "RU", ""), // 42
+                        List.of("Dr. William Jones", "MD", "Cardiology"), // 43
+                        List.of("William Jones, M.D.", "Cardiologist", ""), // 44
+                        List.of("100 Main St", "Apt 3B", "New York, NY"), // 45
+                        List.of("100 Main Street", "Apartment 3B", "NYC"), // 46
+                        List.of("Project Manager", "IT Department", "2010-2015"), // 47
+                        List.of("PM", "Information Technology", "2010-15"), // 48
+                        List.of("Apple Inc.", "", "Technology"), // 49
+                        List.of("Apple Incorporated", "", "Tech") // 50
                 )
         );
     }
