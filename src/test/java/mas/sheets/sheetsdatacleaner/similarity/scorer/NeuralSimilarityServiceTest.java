@@ -26,12 +26,17 @@ public class NeuralSimilarityServiceTest {
     private static GenericContainer<?> container;
     private NeuralSimilarityServiceImpl scorer;
 
+    private static final String CONTAINER_IMAGE = "similarity:0.2.0";
+    private static final int CONTAINER_PORT = 5000;
+
+
     @BeforeAll
     void setUp() {
-        container = new GenericContainer<>(DockerImageName.parse("sentence-scorer-crossencoder:latest"))
-                .withExposedPorts(5000)
+        container = new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
+                .withExposedPorts(CONTAINER_PORT)
                 .waitingFor(Wait.forHttp("/health").forStatusCode(200))
-                .withStartupTimeout(Duration.ofSeconds(60));
+                .withStartupTimeout(Duration.ofMinutes(4))
+                .withReuse(false);
 
         container.start();
 

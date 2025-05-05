@@ -35,16 +35,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class DuplicateDetectionServiceTest {
 
-    private static final String CONTAINER_IMAGE = "sentence-scorer-crossencoder:latest";
+    private static final String CONTAINER_IMAGE = "similarity:0.3.0";
     private static final int CONTAINER_PORT = 5000;
-    private static final String HEALTH_ENDPOINT = "/health";
-    private static final Duration STARTUP_TIMEOUT = Duration.ofSeconds(90);
 
     @Container
-    private static final GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
-            .withExposedPorts(CONTAINER_PORT)
-            .waitingFor(Wait.forHttp(HEALTH_ENDPOINT).forStatusCode(200))
-            .withStartupTimeout(STARTUP_TIMEOUT);
+    private static final GenericContainer<?> container =
+            new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
+                    .withExposedPorts(CONTAINER_PORT)
+                    .waitingFor(Wait.forHttp("/health").forStatusCode(200))
+                    .withStartupTimeout(Duration.ofMinutes(4))
+                    .withReuse(false);
 
     @Test
     @DisplayName("Should detect exact duplicates without neural service")

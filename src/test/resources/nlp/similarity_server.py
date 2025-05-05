@@ -4,22 +4,44 @@ from sentence_transformers import CrossEncoder
 app = Flask(__name__)
 model = CrossEncoder("cross-encoder/stsb-roberta-base")
 
+# ------------------------------------------------------------
+#   /similarity ― принимает
+#   1) [{"left": "...", "right": "..."}, …]       (batch-objects)
+#   2) {"left": [...], "right": [...]}            (parallel lists)
+#   3) {"left": "...", "right": "..."}            (single pair)
+# ------------------------------------------------------------
 @app.route("/similarity", methods=["POST"])
 def similarity():
     data = request.get_json()
-    left = data.get("left")
-    right = data.get("right")
 
-    if not left or not right:
-        return jsonify(score=0.0)
+    # -------- формат 1: список объектов --------
+    if isinstance(data, list):
+        pairs = [(d.get("left"), d.get("right")) for d in data
+                 if d.get("left") and d.get("right")]
+        if not pairs:
+            return jsonify([]), 200
+        scores = model.predict(pairs).tolist()
+        return jsonify(scores), 200
 
-    score = model.predict([(left, right)])[0]
+    # -------- формат 2: два параллельных списка --------
+    left, right = data.get("left"), data.get("right")
+    if isinstance(left, list) and isinstance(right, list) and len(left) == len(right):
+        pairs  = list(zip(left, right))
+        scores = model.predict(pairs).tolist()
+        return jsonify(scores), 200
 
-    return jsonify(score=round(float(score), 6))
+    # -------- формат 3: одиночная пара --------
+    if isinstance(left, str) and isinstance(right, str):
+        score = float(model.predict([(left, right)])[0])
+        return jsonify(score=round(score, 6)), 200
+
+    return jsonify([]), 200
+
 
 @app.route("/health", methods=["GET"])
 def health():
     return "OK", 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

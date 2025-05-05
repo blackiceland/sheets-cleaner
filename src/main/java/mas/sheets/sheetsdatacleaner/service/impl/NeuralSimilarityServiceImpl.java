@@ -68,7 +68,7 @@ public class NeuralSimilarityServiceImpl implements NeuralSimilarityService {
 
         String body;
         try {
-            body = mapper.writeValueAsString(Map.of("pairs", payload));
+            body = mapper.writeValueAsString(payload);
         } catch (Exception ex) {
             log.error("JSON marshal error", ex);
             return fillFallback(pairs);
