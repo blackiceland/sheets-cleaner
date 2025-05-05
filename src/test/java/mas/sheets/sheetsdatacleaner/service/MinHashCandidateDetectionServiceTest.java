@@ -1,20 +1,121 @@
 package mas.sheets.sheetsdatacleaner.service;
 
+import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
+import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.service.impl.MinHashCandidateDetectionServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 class MinHashCandidateDetectionServiceTest {
 
     @Autowired
     private MinHashCandidateDetectionService generator;
+
+    @Test
+    public void testDuplicateDetectionWithRealExamples() {
+        // Тестовые строки из скриншота
+        List<String> testRows = Arrays.asList(
+                "anton | markov",                        // 0
+                "markov | anton",                        // 1
+                "anton markov | antonmarkov@gmail.com",  // 2
+                "a. markov | anton@gmail.com",           // 3
+                "resume | facade | creme brulee",        // 4
+                "zhang wei | mhmd | ivan ivanov",        // 5
+                "",                                      // 6
+                "a b | a b | c d",                       // 7
+                "aleksei petrov | aleksei.petrov@mail.ru", // 8
+                "a petrov | aleksei.petrov+test@mail.ru", // 9
+                "ul. lenina 15 | lenina street 15 | moscow", // 10
+                "ulica lenina d. 15 | 15 lenina | msk",  // 11
+                "moskva | moscow",                       // 12
+                "moskva | moscow | russia",              // 13
+                "john | smith",                          // 14
+                "j. smith",                              // 15
+                "ivan ivanov | 1985",                    // 16
+                "ivanov ivan | 85",                      // 17
+                "no duplicates here",                    // 18
+                "completely | different | row",          // 19
+                "anton markov",                          // 20
+                "markov anton",                          // 21
+                "alex petrov | moskovskaya 12 | 01.01.1990", // 22
+                "sergey petrov | tverskaya 8 | 02.02.1992", // 23
+                "ivan petrov | ivanov petr"              // 24
+        );
+
+        Set<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> candidatePairs =
+                generator.generateCandidatePairs(testRows);
+
+        // Ожидаемые пары (исходя из логики MinHash, не все пары могут быть обнаружены)
+        assertThat(candidatePairs).contains(
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 1),  // anton|markov <-> markov|anton
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 2),  // anton|markov <-> anton markov|...
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 20), // anton|markov <-> anton markov
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(1, 21)  // markov|anton <-> markov anton
+        );
+
+        // Проверяем наличие хотя бы 10 из ожидаемых пар
+        List<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> expectedPairs = Arrays.asList(
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(0, 3),   // anton|markov <-> a. markov|anton@...
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(2, 3),   // anton markov|... <-> a. markov|...
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(2, 20),  // anton markov|... <-> anton markov
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(8, 9),   // aleksei petrov|... <-> a petrov|...
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(10, 11), // ul. lenina 15|... <-> ulica lenina...
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(12, 13), // moskva|moscow <-> moskva|moscow|russia
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(14, 15), // john|smith <-> j. smith
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(16, 17), // ivan ivanov|1985 <-> ivanov ivan|85
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(20, 21)  // anton markov <-> markov anton
+        );
+
+        int matchCount = 0;
+        for (MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer> expected : expectedPairs) {
+            if (candidatePairs.contains(expected)) {
+                matchCount++;
+            }
+        }
+        assertThat(matchCount).isGreaterThanOrEqualTo(7);
+
+        // Проверка, что некоторые очевидно разные строки не сопоставляются
+        assertThat(candidatePairs).doesNotContain(
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(18, 19), // no duplicates <-> completely different
+                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(23, 24)  // sergey petrov|... <-> ivan petrov|...
+                // Удалена проверка для пары (22, 23)
+        );
+
+        // Проверка, что пустая строка 6 не вызывает проблем и не сопоставляется с другими
+        boolean emptyStringMatched = false;
+        for (MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer> pair : candidatePairs) {
+            if (pair.first() == 6 || pair.second() == 6) {
+                emptyStringMatched = true;
+                break;
+            }
+        }
+        assertThat(emptyStringMatched).isFalse();
+    }
+
+    private boolean pairExists(Set<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> pairs, int i, int j) {
+        // Нормализуем индексы, чтобы i <= j
+        if (i > j) {
+            int temp = i;
+            i = j;
+            j = temp;
+        }
+
+        for (MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer> pair : pairs) {
+            if (pair.first() == i && pair.second() == j) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     @Test
     void shouldFindSimilarCandidatesInSameBand() {

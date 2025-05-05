@@ -28,7 +28,7 @@ import java.util.concurrent.Executors;
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
     private static final double HARD_REJECT_THRESHOLD = 0.25;
-    private static final double FAST_REJECT_THRESHOLD = 0.40;
+    private static final double FAST_REJECT_THRESHOLD = 0.35;
     private static final double FAST_CONFIRM_THRESHOLD = 0.60;
     private static final double NEURAL_CONFIRM_THRESHOLD = 0.70;
 
@@ -133,12 +133,13 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         for (SimilarityScorer s : scorers) {
             if (s instanceof TokenSetRatioScorer) token = s.calculateScore(a, b);
             else if (s instanceof LevenshteinScorer) lev = s.calculateScore(a, b);
-            else if (s instanceof JaroWinklerScorer && maxLen < 15)
+            else if (s instanceof JaroWinklerScorer && maxLen < 25)
                 jw = s.calculateScore(a, b);
         }
 
         double min = maxLen < 15 ? Math.min(token, Math.min(lev, jw))
                 : Math.min(token, lev);
+
         double weighted = TOKEN_WEIGHT * token + LEV_WEIGHT * lev + JW_WEIGHT * jw;
         return new PairEval(pair, min, weighted);
     }

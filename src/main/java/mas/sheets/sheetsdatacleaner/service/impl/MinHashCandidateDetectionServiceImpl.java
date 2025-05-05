@@ -15,13 +15,13 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
     private static final int BAND_COUNT = SIGNATURE_SIZE / BAND_SIZE;
 
     private static final int SHORT_ROW_MAX_LENGTH = 20;
-    private static final int VERY_SHORT_LEN = 15;
+    private static final int VERY_SHORT_LEN = 18;
 
     private static final double SHORT_ROW_THRESHOLD = 0.22;
     private static final double LONG_ROW_THRESHOLD = 0.23;
 
     private static final int MIN_OVERLAP_VERY_SHORT = 5;
-    private static final int MIN_NGRAM_OVERLAP = 10;
+    private static final int MIN_NGRAM_OVERLAP = 8;
 
     private static final int[] SEED = new int[SIGNATURE_SIZE];
 
@@ -145,6 +145,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         int minOverlap = Math.min(lenA, lenB) < VERY_SHORT_LEN
                 ? MIN_OVERLAP_VERY_SHORT
                 : MIN_NGRAM_OVERLAP;
+
         if (inter < minOverlap) return false;
 
         int union = a.length + b.length - inter;
