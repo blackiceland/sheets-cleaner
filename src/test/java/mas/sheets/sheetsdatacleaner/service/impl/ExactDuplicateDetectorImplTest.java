@@ -16,12 +16,6 @@ class ExactDuplicateDetectorImplTest {
     @Autowired
     private ExactDuplicateDetectorImpl detector;
 
-    private static long pairsInRange(Set<IndexPair<Integer, Integer>> pairs, int from, int to) {
-        return pairs.stream()
-                .filter(p -> p.first() >= from && p.first() < to
-                        && p.second() >= from && p.second() < to)
-                .count();
-    }
 
     @Test
     void detectsExactDuplicatesAcrossManyGroups() {
