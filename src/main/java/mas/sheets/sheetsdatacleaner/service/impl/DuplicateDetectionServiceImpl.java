@@ -106,6 +106,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         List<Integer> restIdx = exact.originalIndexes();
 
         Set<IndexPair<Integer, Integer>> pairs = candidateGenerator.generateCandidatePairs(restRows);
+
         for (IndexPair<Integer, Integer> p : pairs) {
             log.info("MINHASH  {}  '{}'  <->  {}  '{}'",
                     restIdx.get(p.first()), restRows.get(p.first()),

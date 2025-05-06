@@ -75,6 +75,7 @@ class RowNormalizerServiceTest {
         List<String> result = service.normalizeRows(input);
 
         assertThat(result).containsExactly(
+                // Базовые примеры
                 "anton markov",
                 "markov anton",
                 "anton markov | antonmarkov@gmail.com",
@@ -86,48 +87,49 @@ class RowNormalizerServiceTest {
                 "aleksei petrov | aleksei.petrov@mail.ru",
                 "a. petrov | aleksei.petrov+test@mail.ru",
 
-                // Обновленные ожидаемые результаты для имен
+                // Имена
                 "john smith | john smith | j. smith",
                 "oconnor | oconnor | oconnor-williams",
                 "mary-anne johnson | mary anne johnson",
                 "van der waals | van der waals",
 
-                // Адреса и местоположения
+                // Адреса и география
                 "123 main st apt 4b | 123 main street apartment 4b",
                 "new york ny 10001 | ny new york 10001",
                 "san-francisco | san francisco | sanfrancisco",
                 "ul. leninskaya d. 15 | leninskaya st. 15",
 
-                // Даты и числовые форматы
-                "2023-01-15 | 01152023 | 15.01.2023",
+                // Даты и числа
+                "2023-01-15 | 01/15/2023 | 15.01.2023",
                 "1234.56 | 1234.56 usd | 1234.56",
                 "id 12345-ab | id#12345ab | id 12345 ab",
-                "+1 234 567-8901 | +12345678901 | 234-567-8901",
+                "1 234 567-8901 | 12345678901 | 234-567-8901",
 
-                // Email и контактная информация
+                // Email
                 "john.doe@example.com | john.doe+newsletters@example.com",
                 "info@xn--80aqeigdi5k.xn--p1ai | info@xn--80aswg.xn--p1ai",
                 "user@gmail.com | user@gmail.com",
                 "support@outlook.com | support@outlook.com",
 
-                // Смешанные регистры и специальные символы
+                // Спецсимволы / регистры
                 "mixed case text | mixed case text",
-                "c++ | c# | java_script",
+                "c | c# | java_script",
                 "alpha-beta-gamma | alpha.beta.gamma",
-                "textwithcolons | textwithslashes",
+                "textwithcolons | text/with/slashes",
 
-                // Многоязычные данные
+                // Многоязычные строки
                 "munchen | muenchen | munich",
                 "bei jing shi | beijing | pekin",
                 "seoul | seoul | seul",
                 "straße | strasse | ulica",
 
-                // Сложные, комбинированные данные
+                // Сложные комбинированные
                 "dr. john smith md | john smith m.d.",
                 "2022 q4 report | report for q4 2022",
                 "project #123-xyz | project 123 xyz",
-                "ab ratio 15 | ab  15"
+                "a/b ratio 15 | ab  15"
         );
+
     }
 
     @Test
@@ -194,7 +196,7 @@ class RowNormalizerServiceTest {
         List<String> result = service.normalizeRows(texts);
 
         assertThat(result).containsExactly(
-                "c++",
+                "c",
                 "c#",
                 "javascript",
                 "python 3.9",

@@ -19,8 +19,8 @@ import java.util.stream.Collectors;
 public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
-    private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}&&[^@._\\-]+");
-    private static final Pattern NON_ASCII = Pattern.compile("[^\\p{IsAlphabetic}\\d\\s@._\\-+#]");
+    private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}&&[^@._/#-]+");
+    private static final Pattern NON_ASCII = Pattern.compile("[^\\p{IsAlphabetic}\\d\\s@._/#-]");
     private static final Pattern GMAIL_PLUS = Pattern.compile("\\+.*$");
 
     private static final int PARALLEL_THRESHOLD = 10_000;
