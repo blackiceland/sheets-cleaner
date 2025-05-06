@@ -1,5 +1,16 @@
 spring.application.name: sheets-data-cleaner
 
+management:
+  server:
+    port: 8080
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+embedding:
+  api:
+    url: http://embedding:5000/similarity
 
 logging:
   level:
