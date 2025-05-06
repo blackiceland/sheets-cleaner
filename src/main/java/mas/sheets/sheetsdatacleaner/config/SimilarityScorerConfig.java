@@ -1,4 +1,4 @@
-package mas.sheets.sheetsdatacleaner.configuration;
+package mas.sheets.sheetsdatacleaner.config;
 
 import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.JaroWinklerScorer;

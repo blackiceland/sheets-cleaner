@@ -1,1 +1,45 @@
 spring.application.name: sheets-data-cleaner
+
+
+logging:
+  level:
+    root: INFO
+    mas.sheets.sheetsdatacleaner: DEBUG          # ← ваш пакет
+
+resilience4j:
+  bulkhead:
+    instances:
+      embeddingApi:
+        maxConcurrentCalls: 8           # ≤ число CPU-ядер
+        maxWaitDuration: 50ms
+        writableStackTraceEnabled: false
+
+  timelimiter:
+    instances:
+      embeddingApi:
+        timeoutDuration: 3s             # 2–3× p95 latency
+        cancelRunningFuture: true
+
+  ratelimiter:
+    instances:
+      embeddingApi:
+        limitForPeriod: 100             # 100 запросов
+        limitRefreshPeriod: 1s          # …каждую секунду
+        timeoutDuration: 0              # не ждём в очереди
+
+  circuitbreaker:
+    instances:
+      embeddingApi:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20           # смотрим последние 20 вызовов
+        failureRateThreshold: 50        # ≥50 % ошибок → open
+        slowCallRateThreshold: 50
+        slowCallDurationThreshold: 2s
+        waitDurationInOpenState: 30s    # пауза перед half-open
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.lang.RuntimeException
+        ignoreExceptions:
+          - java.util.concurrent.CancellationException
+        writableStackTraceEnabled: false

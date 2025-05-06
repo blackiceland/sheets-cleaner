@@ -1,118 +1,96 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
 import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletionException;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class NeuralSimilarityServiceImpl implements NeuralSimilarityService {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(15);
     private static final double FALLBACK_SCORE = 0.0;
-    private static final int MAX_ATTEMPTS = 3;
-    private static final int CACHE_MAX_ENTRIES = 10_000;
+    private static final int CACHE_MAX_SIZE = 10_000;
 
-    private final ObjectMapper mapper;
-    private final HttpClient client;
-    private final URI api;
+    private final EmbeddingApiClient embeddingClient;
 
     private final Map<Pair<String, String>, Double> cache =
-            Collections.synchronizedMap(new LinkedHashMap<>(64, .75f, true) {
+            Collections.synchronizedMap(new LinkedHashMap<>(64, 0.75f, true) {
                 @Override
-                protected boolean removeEldestEntry(Map.Entry<Pair<String, String>, Double> e) {
-                    return size() > CACHE_MAX_ENTRIES;
+                protected boolean removeEldestEntry(Map.Entry<Pair<String, String>, Double> eldest) {
+                    return size() > CACHE_MAX_SIZE;
                 }
             });
 
     @PreDestroy
-    public void shutdown() {
-    }
+    public void shutdown() {}
 
     @Override
     public double fetchSimilarityScore(String left, String right) {
-        if (left == null || right == null) return FALLBACK_SCORE;
-        String l = left.strip();
-        String r = right.strip();
-        if (l.isEmpty() || r.isEmpty()) return FALLBACK_SCORE;
-
-        Pair<String, String> key = Pair.of(l, r);
+        if (left == null || right == null) {
+            return FALLBACK_SCORE;
+        }
+        Pair<String, String> key = Pair.of(left.strip(), right.strip());
+        if (key.getLeft().isEmpty() || key.getRight().isEmpty()) {
+            return FALLBACK_SCORE;
+        }
         Double cached = cache.get(key);
-        if (cached != null) return cached;
-
+        if (cached != null) {
+            return cached;
+        }
         return fetchBatchSimilarityScores(List.of(key)).getOrDefault(key, FALLBACK_SCORE);
     }
 
     @Override
     public Map<Pair<String, String>, Double> fetchBatchSimilarityScores(List<Pair<String, String>> pairs) {
+        if (pairs.isEmpty()) {
+            return Collections.emptyMap();
+        }
 
         Map<Pair<String, String>, Double> result = new HashMap<>();
-        if (pairs.isEmpty()) return result;
+        List<Pair<String, String>> uncached = new ArrayList<>();
+        for (Pair<String, String> p : pairs) {
+            Double c = cache.get(p);
 
-        List<Map<String, String>> payload = pairs.stream()
+            if (c != null) {
+                result.put(p, c);
+            } else {
+                uncached.add(p);
+            }
+        }
+        if (uncached.isEmpty()) {
+            return result;
+        }
+
+        List<Map<String, String>> payload = uncached.stream()
                 .map(p -> Map.of("left", p.getLeft(), "right", p.getRight()))
                 .toList();
 
-        String body;
+        List<Double> scores;
         try {
-            body = mapper.writeValueAsString(payload);
-        } catch (Exception ex) {
-            log.error("JSON marshal error", ex);
-            return fillFallback(pairs);
+            scores = embeddingClient.embedBatch(payload).join();
+        } catch (CompletionException ex) {
+            log.warn("Embedding request failed, using fallback scores: {}", ex.getCause().getMessage(), ex.getCause());
+            scores = Collections.nCopies(payload.size(), FALLBACK_SCORE);
         }
 
-        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            try {
-                HttpRequest req = HttpRequest.newBuilder(api)
-                        .timeout(TIMEOUT)
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(body))
-                        .build();
-
-                HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() != 200)
-                    throw new RuntimeException("HTTP " + resp.statusCode());
-
-                List<Double> scores = mapper.readValue(resp.body(), new TypeReference<>() {
-                });
-
-                for (int i = 0; i < pairs.size(); i++) {
-                    double s = (i < scores.size()) ? scores.get(i) : FALLBACK_SCORE;
-                    if (s < 0 || s > 1) s = FALLBACK_SCORE;
-                    Pair<String, String> key = pairs.get(i);
-                    cache.put(key, s);
-                    result.put(key, s);
-                }
-                return result;
-
-            } catch (Exception ex) {
-                if (attempt == MAX_ATTEMPTS - 1)
-                    log.warn("Neural batch failed after {} attempts: {}", MAX_ATTEMPTS, ex.getMessage());
-                try {
-                    Thread.sleep(400L << attempt);
-                } catch (InterruptedException ignored) {
-                }
+        for (int i = 0; i < uncached.size(); i++) {
+            double s = (i < scores.size()) ? scores.get(i) : FALLBACK_SCORE;
+            if (s < 0 || s > 1) {
+                s = FALLBACK_SCORE;
             }
-        }
-        return fillFallback(pairs);
-    }
 
-    private Map<Pair<String, String>, Double> fillFallback(List<Pair<String, String>> pairs) {
-        Map<Pair<String, String>, Double> m = new HashMap<>();
-        pairs.forEach(p -> m.put(p, FALLBACK_SCORE));
-        return m;
+            Pair<String, String> k = uncached.get(i);
+            cache.put(k, s);
+            result.put(k, s);
+        }
+        return result;
     }
 }
