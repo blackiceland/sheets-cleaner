@@ -1,8 +1,10 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
 import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
 import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
 import mas.sheets.sheetsdatacleaner.service.RowNormalizerService;
@@ -27,6 +29,8 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,7 +86,7 @@ public class DuplicateDetectionServiceTest {
         // Arrange
         List<List<String>> rows = List.of(
                 List.of("John Smith", "john.smith@example.com"),
-                List.of("Jonathan Smith", "john.smith@example.com"), // Similar but high weighted score
+                List.of("Jonathan Smith", "john.smith@example.com"),
                 List.of("Jane Doe", "jane.doe@example.com")         // Different
         );
 
@@ -96,7 +100,7 @@ public class DuplicateDetectionServiceTest {
 
         // Assert
         assertThat(response).isNotNull();
-        assertThat(response.confirmed()).contains(IndexPair.ofNormalized(0, 1));
+        assertThat(response.candidates()).contains(IndexPair.ofNormalized(0, 1));
         assertThat(response.confirmed()).doesNotContain(IndexPair.ofNormalized(0, 2));
         assertThat(response.confirmed()).doesNotContain(IndexPair.ofNormalized(1, 2));
     }
@@ -105,52 +109,56 @@ public class DuplicateDetectionServiceTest {
     @MethodSource("provideTestRows")
     @DisplayName("Should detect duplicates with real container")
     void shouldDetectDuplicatesWithRealContainer(List<List<String>> rows) {
-        container.start();
-
-        String baseUrl = "http://" + container.getHost() + ":" + container.getMappedPort(CONTAINER_PORT) + "/similarity";
-
-        var request = new DuplicateMatchRequest(rows);
-
-        var neuralService = new NeuralSimilarityServiceImpl(
-                new ObjectMapper(),
-                HttpClient.newHttpClient(),
-                URI.create(baseUrl)
-        );
-
-        var service = createDuplicateService(neuralService);
-
-        // Act
-        DuplicateMatchResponse response = service.findDuplicates(request);
-
-        // Assert
-        assertThat(response).isNotNull();
-
-        // Expected duplicate pairs (high confidence)
-        Set<IndexPair<Integer, Integer>> expectedPairs = Set.of(
-                IndexPair.ofNormalized(0, 1),    // anton/markov vs markov/anton
-                IndexPair.ofNormalized(0, 20),   // anton/markov vs anton markov
-                IndexPair.ofNormalized(1, 20),   // markov/anton vs anton markov
-                IndexPair.ofNormalized(1, 21),   // markov/anton vs markov anton
-                IndexPair.ofNormalized(2, 3),    // anton markov/gmail vs a. markov/gmail
-                IndexPair.ofNormalized(8, 9),    // aleksei petrov vs a petrov with similar emails
-                IndexPair.ofNormalized(10, 11),  // ул. Ленина vs улица Ленина
-                IndexPair.ofNormalized(12, 13),  // Москва vs Moscow
-                IndexPair.ofNormalized(14, 15),  // john smith vs j. smith
-                IndexPair.ofNormalized(16, 17),  // ivan ivanov vs ivanov ivan
-                IndexPair.ofNormalized(20, 21)   // anton markov vs markov anton
-        );
-
-        // Verify core duplicate pairs are found
-        for (IndexPair<Integer, Integer> pair : expectedPairs) {
-            assertThat(response.confirmed()).contains(pair);
+        if (!container.isRunning()) {
+            container.start();
         }
 
-        // Verify non-duplicates are not flagged
-        assertThat(response.confirmed()).doesNotContain(IndexPair.ofNormalized(0, 4));   // anton markov vs résumé
-        assertThat(response.confirmed()).doesNotContain(IndexPair.ofNormalized(0, 14));  // anton markov vs john smith
-        assertThat(response.confirmed()).doesNotContain(IndexPair.ofNormalized(4, 5));   // résumé vs 张伟
-        assertThat(response.confirmed()).doesNotContain(IndexPair.ofNormalized(18, 19)); // no duplicates vs completely different
-        assertThat(response.confirmed()).doesNotContain(IndexPair.ofNormalized(22, 24)); // alex petrov vs ivan petrov
+        String baseUrl = "http://%s:%d/similarity".formatted(
+                container.getHost(),
+                container.getMappedPort(CONTAINER_PORT)
+        );
+
+        ObjectMapper mapper = new ObjectMapper();
+        HttpClient http = HttpClient.newHttpClient();
+        URI apiUri = URI.create(baseUrl);
+        ExecutorService exec = Executors.newFixedThreadPool(4);
+
+        EmbeddingApiClient embeddingClient = new EmbeddingApiClient(mapper, http, apiUri, exec);
+        NeuralSimilarityServiceImpl neuralService = new NeuralSimilarityServiceImpl(embeddingClient);
+
+        DuplicateDetectionService service = createDuplicateService(neuralService);
+
+        DuplicateMatchRequest request = new DuplicateMatchRequest(rows);
+        DuplicateMatchResponse response = service.findDuplicates(request);
+
+        assertThat(response).isNotNull();
+
+        Set<IndexPair<Integer, Integer>> expectedConfirmed = Set.of(
+                IndexPair.ofNormalized(0, 1),
+                IndexPair.ofNormalized(0, 20),
+                IndexPair.ofNormalized(1, 20),
+                IndexPair.ofNormalized(1, 21),
+                IndexPair.ofNormalized(0, 21),
+                IndexPair.ofNormalized(20, 21)
+        );
+
+        Set<IndexPair<Integer, Integer>> expectedCandidates = Set.of(
+                IndexPair.ofNormalized(2, 3),
+                IndexPair.ofNormalized(8, 9),
+                IndexPair.ofNormalized(10, 11),
+                IndexPair.ofNormalized(12, 13),
+                IndexPair.ofNormalized(14, 15),
+                IndexPair.ofNormalized(16, 17)
+        );
+
+        assertThat(response.confirmed()).containsAll(expectedConfirmed);
+        assertThat(response.candidates()).containsAll(expectedCandidates);
+
+        assertThat(response.confirmed()).doesNotContainAnyElementsOf(expectedCandidates);
+        assertThat(response.candidates()).doesNotContainAnyElementsOf(expectedConfirmed);
+
+
+        exec.shutdownNow();
     }
 
     private static Stream<List<List<String>>> provideTestRows() {

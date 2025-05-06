@@ -69,11 +69,11 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
     @Override
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
-
         log.info("START");
 
         /* ---------- 1. Нормализация ---------- */
         List<String> normalized = normalizer.normalizeRows(request.rows());
+
         for (int i = 0; i < normalized.size(); i++) {
             log.info("NORM  idx={}   '{}'", i, normalized.get(i));
         }

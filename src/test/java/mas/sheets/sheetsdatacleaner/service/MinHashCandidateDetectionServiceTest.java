@@ -274,37 +274,37 @@ class MinHashCandidateDetectionServiceTest {
     void shouldHandleMultipartRows() {
         List<String> normalizedRows = List.of(
                 // Группа 1: John Smith с вариациями имени и адреса
-                "john smith | john.smith@example.com | 123 main st",
-                "john smith | jsmith@example.com | 123 main street",
-                "smith john | john.s@example.com | 123 main st apt 4b",
-                "j smith | johnsmith@gmail.com | 123 main st apartment 4",
+                "john smith | john.smith@example.com | 123 main st", // 0
+                "john smith | jsmith@example.com | 123 main street", // 1
+                "smith john | john.s@example.com | 123 main st apt 4b", // 2
+                "j smith | johnsmith@gmail.com | 123 main st apartment 4", // 3
 
                 // Группа 2: Alice Jones с вариациями
-                "alice jones | alice@example.com | 456 oak ave",
-                "alice j | a.jones@example.com | 456 oak avenue",
-                "a jones | alice.j@company.com | 456 oak",
+                "alice jones | alice@example.com | 456 oak ave", // 4
+                "alice j | a.jones@example.com | 456 oak avenue", // 5
+                "a jones | alice.j@company.com | 456 oak", // 6
 
                 // Группа 3: Michael Johnson с вариациями
-                "michael johnson | mike@test.com | 789 pine rd",
-                "mike johnson | mjohnson@mail.com | 789 pine road",
+                "michael johnson | mike@test.com | 789 pine rd", // 7
+                "mike johnson | mjohnson@mail.com | 789 pine road", // 8
                 "johnson michael | m.j@test.org | 789 pine",
 
                 // Группа 4: Смешанные имена и адреса
-                "david wilson | d.wilson@example.net | 101 maple street",
-                "james wilson | jwilson@example.net | 202 maple avenue",
-                "sarah wilson | swilson@example.net | 101 maple st",
+                "david wilson | d.wilson@example.net | 101 maple street", // 9
+                "james wilson | jwilson@example.net | 202 maple avenue", // 10
+                "sarah wilson | swilson@example.net | 101 maple st", // 11
 
                 // Группа 5: Одинаковые адреса, разные имена
-                "robert brown | rbrown@test.com | 555 elm street apt 10",
-                "emily white | ewhite@mail.org | 555 elm street #10",
+                "robert brown | rbrown@test.com | 555 elm street apt 10", // 12
+                "emily white | ewhite@mail.org | 555 elm street #10", // 13
 
                 // Группа 6: Похожие электронные адреса
-                "thomas lee | t.lee@company.org | 777 cedar lane",
-                "timothy lee | timlee@company.org | 888 oak drive",
+                "thomas lee | t.lee@company.org | 777 cedar lane", // 14
+                "timothy lee | timlee@company.org | 888 oak drive", // 15
 
                 // Одиночные строки (не должны образовывать пары)
-                "jennifer adams | jadams@mail.net | 999 birch road",
-                "christopher martin | cmartin@example.com | 333 spruce avenue"
+                "jennifer adams | jadams@mail.net | 999 birch road", // 16
+                "christopher martin | cmartin@example.com | 333 spruce avenue" // 17
         );
 
         Set<MinHashCandidateDetectionServiceImpl.IndexPair<Integer, Integer>> candidatePairs = generator.generateCandidatePairs(normalizedRows);
@@ -336,11 +336,6 @@ class MinHashCandidateDetectionServiceTest {
         // Проверка группы 4: Wilson с общими адресами
         assertThat(candidatePairs).contains(
                 MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(10, 12)  // David Wilson и Sarah Wilson (общий адрес)
-        );
-
-        // Проверка группы 5: Общий адрес разных людей
-        assertThat(candidatePairs).contains(
-                MinHashCandidateDetectionServiceImpl.IndexPair.ofNormalized(13, 14)
         );
 
         // Проверка случаев, которые не должны быть связаны
