@@ -1,0 +1,32 @@
+name: performance
+
+on:
+  workflow_dispatch:        # запуск по кнопке
+  pull_request:             # проверяем каждый PR
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * *'     # ночной прогон (02:00 UTC)
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app image
+        run: docker build -t sheets-data-cleaner:latest .
+
+      - name: Compose up
+        run: docker compose up -d
+
+      - name: Run smoke test
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/scripts \
+            --network $(docker network ls --filter name=sheets-data-cleaner -q) \
+            grafana/k6 run /scripts/smoke.js
+
+      - name: Compose down
+        if: always()
+        run: docker compose down --volumes
