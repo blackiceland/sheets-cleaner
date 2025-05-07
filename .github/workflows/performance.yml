@@ -1,12 +1,12 @@
 name: performance
 
 on:
-  workflow_dispatch:               # запуск по кнопке
-  pull_request:                    # каждый PR → main
+  workflow_dispatch:
+  pull_request:
     branches: [ main ]
-  push:                            # прямой пуш в main
+  push:
     branches: [ main ]
-  schedule:                        # ночной прогон (02:00 UTC)
+  schedule:
     - cron: '0 2 * * *'
 
 jobs:
@@ -14,46 +14,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ---------- исходники ----------
       - uses: actions/checkout@v4
 
-      # ---------- JDK 24 ----------
-      - name: Set up Temurin 24
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '24'
 
-      # ---------- Maven wrapper исполняемый ----------
       - name: Make mvnw executable
         run: chmod +x mvnw
 
-      # ---------- сборка JAR сервиса ----------
       - name: Build JAR
         run: ./mvnw -B clean package -DskipTests
 
-      # ---------- сборка образа модели ----------
       - name: Build similarity image
         run: docker build -t similarity:0.3.0 ./similarity
 
-      # ---------- сборка образа сервиса ----------
       - name: Build app image
         run: docker build -t sheets-data-cleaner:latest .
 
-      # ---------- поднимаем связку ----------
       - name: Compose up
         run: docker compose up -d
 
-      # ---------- smoke-тест k6 ----------
+      # ---------- k6: ищём сеть динамически ----------
       - name: Run smoke test
+        shell: bash
         run: |
+          # берём первую сеть, созданную текущим compose-проектом
+          NET=$(docker network ls --filter "name=_default" --filter "name=$(basename "$GITHUB_WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')" -q | head -n 1)
+
+          echo "Using network $NET"
           docker run --rm \
-            --network sheets-data-cleaner_default \
+            --network "$NET" \
             -v ${{ github.workspace }}:/scripts \
             grafana/k6 run /scripts/smoke.js
-        shell: bash
 
-      # ---------- всегда выключаем контейнеры ----------
       - name: Compose down
         if: always()
         run: docker compose down --volumes
