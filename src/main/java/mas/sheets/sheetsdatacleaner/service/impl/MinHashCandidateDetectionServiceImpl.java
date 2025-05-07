@@ -46,6 +46,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         Map<Long, IntList> buckets = new HashMap<>(n * BAND_COUNT / 4);
         for (int idx = 0; idx < n; idx++) {
             int[] sig = data[idx].signature;
+
             for (int b = 0; b < BAND_COUNT; b++) {
                 long key = bandKey(sig, b);
                 buckets.computeIfAbsent(key, k -> new IntList()).add(idx);
