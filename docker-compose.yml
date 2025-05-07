@@ -1,22 +1,19 @@
 version: "3.9"
-
 services:
-  cleaner:
-    image: sheets-cleaner:0.1.0
-    ports:
-      - "8080:8080"
-    environment:
-      EMBEDDING_API_URL: http://embedding:5000/similarity
-    depends_on:
-      embedding:
-        condition: service_healthy
 
-  embedding:
-    image: similarity:0.2.0
-    ports:
-      - "5000:5000"
+  similarity:
+    image: similarity:0.3.0
+    ports: ["5000"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 10s
-      timeout: 3s
       retries: 5
+
+  cleaner:
+    image: sheets-data-cleaner:latest
+    environment:
+      EMBEDDING_API_URL: http://similarity:5000
+    depends_on:
+      - similarity
+    ports:
+      - "8080"

@@ -44,8 +44,8 @@ class DuplicateEndpointIT {
     @ParameterizedTest
     @MethodSource("rows")
     void ok(List<List<String>> rows) {
-        DuplicateMatchResponse resp =
-                duplicateService.findDuplicates(new DuplicateMatchRequest(rows));
+        DuplicateMatchResponse resp = duplicateService.findDuplicates(new DuplicateMatchRequest(rows));
+
         assertThat(resp.confirmed()).isNotEmpty();
     }
 
