@@ -1,19 +1,12 @@
 name: performance
 
 on:
-  # запуск вручную из вкладки Actions
-  workflow_dispatch:
-
-  # проверяем каждый pull-request → main
-  pull_request:
+  workflow_dispatch:           # запуск вручную
+  pull_request:                # каждый PR → main
     branches: [ main ]
-
-  # прямой пуш в main
-  push:
+  push:                        # прямой пуш в main
     branches: [ main ]
-
-  # ночной прогон (02:00 UTC)
-  schedule:
+  schedule:                    # ночной прогон
     - cron: '0 2 * * *'
 
 jobs:
@@ -21,35 +14,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. клонируем репозиторий
+      # 1. Клонируем репозиторий
       - uses: actions/checkout@v4
 
-      # 2. делаем wrapper исполняемым (иначе «permission denied»)
+      # 2. Ставим Temurin 24 (ea)
+      - name: Set up JDK 24
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '24'
+
+      # 3. Делаем ./mvnw исполняемым
       - name: Make mvnw executable
         run: chmod +x mvnw
 
-      # 3. собираем JAR (без юнит-тестов, чтобы ускорить)
+      # 4. Собираем JAR
       - name: Build JAR
         run: ./mvnw -B clean package -DskipTests
 
-      # 4. строим образ приложения
+      # 5. Собираем Docker-образ приложения
       - name: Build app image
         run: docker build -t sheets-data-cleaner:latest .
 
-      # 5. поднимаем сервис + модель
+      # 6. Поднимаем сервис + модель
       - name: Compose up
         run: docker compose up -d
 
-      # 6. запускаем smoke-тест k6
+      # 7. Запускаем smoke-тест k6
       - name: Run smoke test
         run: |
-          NETWORK_ID=$(docker network ls --filter name=sheets-data-cleaner -q)
+          NET=$(docker network ls --filter name=sheets-data-cleaner -q)
           docker run --rm \
             -v ${{ github.workspace }}:/scripts \
-            --network $NETWORK_ID \
+            --network $NET \
             grafana/k6 run /scripts/smoke.js
 
-      # 7. чистим окружение независимо от статуса
+      # 8. Всегда гасим окружение
       - name: Compose down
         if: always()
         run: docker compose down --volumes
