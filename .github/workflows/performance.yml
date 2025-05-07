@@ -1,12 +1,12 @@
 name: performance
 
 on:
-  workflow_dispatch:           # запуск вручную
-  pull_request:                # каждый PR → main
+  workflow_dispatch:
+  pull_request:
     branches: [ main ]
-  push:                        # прямой пуш в main
+  push:
     branches: [ main ]
-  schedule:                    # ночной прогон
+  schedule:
     - cron: '0 2 * * *'
 
 jobs:
@@ -14,33 +14,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Клонируем репозиторий
       - uses: actions/checkout@v4
 
-      # 2. Ставим Temurin 24 (ea)
-      - name: Set up JDK 24
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '24'
 
-      # 3. Делаем ./mvnw исполняемым
       - name: Make mvnw executable
         run: chmod +x mvnw
 
-      # 4. Собираем JAR
       - name: Build JAR
         run: ./mvnw -B clean package -DskipTests
 
-      # 5. Собираем Docker-образ приложения
+      # ---------- новый шаг ----------
+      - name: Build similarity image
+        run: docker build -t similarity:0.3.0 ./similarity
+      # -------------------------------
+
       - name: Build app image
         run: docker build -t sheets-data-cleaner:latest .
 
-      # 6. Поднимаем сервис + модель
       - name: Compose up
         run: docker compose up -d
 
-      # 7. Запускаем smoke-тест k6
       - name: Run smoke test
         run: |
           NET=$(docker network ls --filter name=sheets-data-cleaner -q)
@@ -49,7 +46,6 @@ jobs:
             --network $NET \
             grafana/k6 run /scripts/smoke.js
 
-      # 8. Всегда гасим окружение
       - name: Compose down
         if: always()
         run: docker compose down --volumes

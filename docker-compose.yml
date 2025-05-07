@@ -1,12 +1,10 @@
 services:
   similarity:
+    build:
+      context: ./similarity
     image: similarity:0.3.0
     ports:
       - "5000:5000"
-#    healthcheck:
-#      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-#      interval: 10s
-#      retries: 5
 
   cleaner:
     image: sheets-data-cleaner:latest

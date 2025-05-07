@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # ---------- зависимости ----------
-COPY requirements.txt .
+COPY ../src/test/resources/nlp/requirements.txt .
 
 RUN pip install --prefer-binary "numpy<2" && \
     pip install --prefer-binary \
@@ -24,7 +24,7 @@ CrossEncoder("cross-encoder/stsb-roberta-base")
 PY
 
 # ---------- приложение ----------
-COPY similarity_server.py .
+COPY ../src/test/resources/nlp/similarity_server.py .
 
 EXPOSE 5000
 CMD ["python", "similarity_server.py"]
