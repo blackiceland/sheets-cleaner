@@ -14,38 +14,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # --- исходники ---
       - uses: actions/checkout@v4
 
+      # --- JDK 24 для сборки сервиса ---
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '24'
 
+      # --- делаем mvnw исполняемым (Linux) ---
       - name: Make mvnw executable
         run: chmod +x mvnw
 
+      # --- собираем JAR сервиса ---
       - name: Build JAR
         run: ./mvnw -B clean package -DskipTests
 
-      # ---------- новый шаг ----------
+      # --- строим ОБРАЗ МОДЕЛИ из ./similarity ---
       - name: Build similarity image
         run: docker build -t similarity:0.3.0 ./similarity
-      # -------------------------------
 
+      # --- строим образ сервиса ---
       - name: Build app image
         run: docker build -t sheets-data-cleaner:latest .
 
+      # --- поднимаем связку ---
       - name: Compose up
         run: docker compose up -d
 
+      # --- запускаем smoke-тест ---
       - name: Run smoke test
         run: |
           NET=$(docker network ls --filter name=sheets-data-cleaner -q)
           docker run --rm \
-            -v ${{ github.workspace }}:/scripts \
             --network $NET \
-            grafana/k6 run /scripts/smoke.js
+            grafana/k6 run /github/workspace/smoke.js
 
+      # --- всегда выключаем контейнеры ---
       - name: Compose down
         if: always()
         run: docker compose down --volumes

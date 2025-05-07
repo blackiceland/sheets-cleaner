@@ -10,7 +10,7 @@ export const options = {
     },
 };
 
-const url = 'http://host.docker.internal:8080/api/v1/sheets/duplicates';
+const url = 'http://cleaner:8080/api/v1/sheets/duplicates';
 const payload = JSON.stringify({
     rows: [
         ['Anton Markov'],
