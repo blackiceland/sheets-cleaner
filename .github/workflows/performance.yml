@@ -1,12 +1,19 @@
 name: performance
 
 on:
-  workflow_dispatch:            # запуск вручную
-  pull_request:                 # каждый PR → main
+  # запуск вручную из вкладки Actions
+  workflow_dispatch:
+
+  # проверяем каждый pull-request → main
+  pull_request:
     branches: [ main ]
-  push:                         # прямой пуш в main
+
+  # прямой пуш в main
+  push:
     branches: [ main ]
-  schedule:                     # ночной прогон (02:00 UTC)
+
+  # ночной прогон (02:00 UTC)
+  schedule:
     - cron: '0 2 * * *'
 
 jobs:
@@ -14,22 +21,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Клонируем код
+      # 1. клонируем репозиторий
       - uses: actions/checkout@v4
 
-      # 2. Собираем JAR (без тестов, чтобы ускорить)
+      # 2. делаем wrapper исполняемым (иначе «permission denied»)
+      - name: Make mvnw executable
+        run: chmod +x mvnw
+
+      # 3. собираем JAR (без юнит-тестов, чтобы ускорить)
       - name: Build JAR
         run: ./mvnw -B clean package -DskipTests
 
-      # 3. Создаём образ приложения
+      # 4. строим образ приложения
       - name: Build app image
         run: docker build -t sheets-data-cleaner:latest .
 
-      # 4. Поднимаем сервис + модель
+      # 5. поднимаем сервис + модель
       - name: Compose up
         run: docker compose up -d
 
-      # 5. Запускаем smoke-тест k6
+      # 6. запускаем smoke-тест k6
       - name: Run smoke test
         run: |
           NETWORK_ID=$(docker network ls --filter name=sheets-data-cleaner -q)
@@ -38,7 +49,7 @@ jobs:
             --network $NETWORK_ID \
             grafana/k6 run /scripts/smoke.js
 
-      # 6. Чистим окружение независимо от статуса
+      # 7. чистим окружение независимо от статуса
       - name: Compose down
         if: always()
         run: docker compose down --volumes
