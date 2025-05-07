@@ -14,41 +14,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ---------- исходники ----------
       - uses: actions/checkout@v4
 
+      # ---------- JDK 24 ----------
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '24'
 
+      # ---------- Maven wrapper исполняемый ----------
       - name: Make mvnw executable
         run: chmod +x mvnw
 
+      # ---------- собираем JAR сервиса ----------
       - name: Build JAR
         run: ./mvnw -B clean package -DskipTests
 
+      # ---------- собираем образ модели ----------
       - name: Build similarity image
         run: docker build -t similarity:0.3.0 ./similarity
 
+      # ---------- собираем образ сервиса ----------
       - name: Build app image
         run: docker build -t sheets-data-cleaner:latest .
 
+      # ---------- поднимаем связку ----------
       - name: Compose up
         run: docker compose up -d
 
-      # ---------- k6: ищём сеть динамически ----------
+      # ---------- ждём, пока cleaner ответит 200 ----------
+      - name: Wait for cleaner
+        shell: bash
+        run: |
+          NET=$(docker network ls --filter "name=_default" --filter "name=$(basename "$GITHUB_WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')" -q | head -n 1)
+          for i in {1..30}; do
+            if docker run --rm --network "$NET" curlimages/curl:8.7.1 -s -o /dev/null -w '%{http_code}' http://cleaner:8080/actuator/health | grep -q 200; then
+              echo "cleaner is UP"
+              exit 0
+            fi
+            echo "waiting for cleaner… ($i/30)"
+            sleep 2
+          done
+          echo "cleaner did not start in time" >&2
+          exit 1
+
+      # ---------- smoke-тест k6 ----------
       - name: Run smoke test
         shell: bash
         run: |
-          # берём первую сеть, созданную текущим compose-проектом
           NET=$(docker network ls --filter "name=_default" --filter "name=$(basename "$GITHUB_WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')" -q | head -n 1)
-
-          echo "Using network $NET"
           docker run --rm \
             --network "$NET" \
             -v ${{ github.workspace }}:/scripts \
-            grafana/k6 run /scripts/smoke.js
+            grafana/k6:latest run /scripts/smoke.js
 
+      # ---------- всегда выключаем контейнеры ----------
       - name: Compose down
         if: always()
         run: docker compose down --volumes
