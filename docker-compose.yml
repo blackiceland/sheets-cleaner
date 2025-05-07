@@ -1,13 +1,12 @@
-version: "3.9"
 services:
-
   similarity:
     image: similarity:0.3.0
-    ports: ["5000"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 10s
-      retries: 5
+    ports:
+      - "5000:5000"
+#    healthcheck:
+#      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+#      interval: 10s
+#      retries: 5
 
   cleaner:
     image: sheets-data-cleaner:latest
@@ -16,4 +15,4 @@ services:
     depends_on:
       - similarity
     ports:
-      - "8080"
+      - "8080:8080"
