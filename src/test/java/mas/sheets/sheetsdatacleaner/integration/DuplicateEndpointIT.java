@@ -1,4 +1,4 @@
-package mas.sheets.sheetsdatacleaner.similarity;
+package mas.sheets.sheetsdatacleaner.integration;
 
 import mas.sheets.sheetsdatacleaner.SheetsDataCleanerApplication;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
