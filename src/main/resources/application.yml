@@ -1,12 +1,21 @@
 spring.application.name: sheets-data-cleaner
 
+server:
+  port: 8081
+
 management:
   server:
-    port: 8080
+    port: 8082
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+    tags:
+      application: ${spring.application.name}
 
 embedding:
   api:
