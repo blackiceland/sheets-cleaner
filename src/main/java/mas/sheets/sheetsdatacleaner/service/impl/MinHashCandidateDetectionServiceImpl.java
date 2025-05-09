@@ -1,5 +1,6 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
+import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
 import org.apache.commons.codec.digest.MurmurHash3;
 import org.springframework.stereotype.Service;
@@ -31,7 +32,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
     }
 
     @Override
-    public Set<IndexPair<Integer, Integer>> generateCandidatePairs(List<String> rows) {
+    public Set<IndexPair> generateCandidatePairs(List<String> rows) {
         int n = rows.size();
         MinHashData[] data = new MinHashData[n];
 
@@ -53,7 +54,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         }
 
-        Set<IndexPair<Integer, Integer>> pairs = new HashSet<>();
+        Set<IndexPair> indexPairs = new HashSet<>();
         for (IntList list : buckets.values()) {
             int size = list.size();
             int[] buf = list.elements();
@@ -69,12 +70,12 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                     );
 
                     if (passesJ || hasWordOverlap(rows.get(a), rows.get(b))) {
-                        pairs.add(IndexPair.ofNormalized(a, b));
+                        indexPairs.add(IndexPair.of(a, b));
                     }
                 }
             }
         }
-        return pairs;
+        return indexPairs;
     }
 
     private boolean hasWordOverlap(String ra, String rb) {
@@ -227,12 +228,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
         int size() {
             return size;
-        }
-    }
-
-    public record IndexPair<T extends Comparable<T>, U extends Comparable<U>>(T first, U second) {
-        public static IndexPair<Integer, Integer> ofNormalized(int x, int y) {
-            return x <= y ? new IndexPair<>(x, y) : new IndexPair<>(y, x);
         }
     }
 }

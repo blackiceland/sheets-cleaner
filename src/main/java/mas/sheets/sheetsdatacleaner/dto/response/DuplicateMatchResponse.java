@@ -1,9 +1,10 @@
 package mas.sheets.sheetsdatacleaner.dto.response;
 
-import mas.sheets.sheetsdatacleaner.service.impl.MinHashCandidateDetectionServiceImpl.IndexPair;
+import mas.sheets.sheetsdatacleaner.model.IndexPair;
+
 import java.util.Set;
 
 public record DuplicateMatchResponse(
-        Set<IndexPair<Integer, Integer>> confirmed,
-        Set<IndexPair<Integer, Integer>> candidates
+        Set<IndexPair> confirmed,
+        Set<IndexPair> candidates
 ) {}
