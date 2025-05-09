@@ -10,5 +10,4 @@ receivers:
     telegram_configs:
       - bot_token: "7577651398:AAFKqsFXly-sl0CRm83s4-5VWKWPYdyjnFY"
         chat_id:  557376196
-        parse_mode: Markdown
         send_resolved: true
