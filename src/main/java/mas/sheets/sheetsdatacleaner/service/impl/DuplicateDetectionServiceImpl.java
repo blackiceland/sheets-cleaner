@@ -13,14 +13,11 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 @Service
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
@@ -35,7 +32,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private static final double JW_WEIGHT = 0.10;
 
     private static final int NEURAL_BATCH_SIZE = 50;
-    private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors();
+    private static final int CORE = Runtime.getRuntime().availableProcessors();
+    private static final int MAX_IN_FLIGHT = 4_000;
 
     private final ExactDuplicateDetector exactDetector;
     private final MinHashCandidateDetectionService candidateGenerator;
@@ -43,8 +41,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
 
-    private final ExecutorService scorerPool = Executors.newFixedThreadPool(POOL_SIZE);
-    private final ExecutorService neuralPool = Executors.newFixedThreadPool(Math.min(4, POOL_SIZE));
+    private final BlockingQueue<Runnable> queue =
+            new ArrayBlockingQueue<>(MAX_IN_FLIGHT);
+
+    private final ExecutorService workers =
+            new ThreadPoolExecutor(CORE * 2, CORE * 2, 0L,
+                    TimeUnit.SECONDS, queue);
+
+    private final ExecutorService neuralPool =
+            Executors.newFixedThreadPool(Math.min(4, CORE));
 
     public DuplicateDetectionServiceImpl(
             ExactDuplicateDetector exactDetector,
@@ -61,7 +66,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
     @PreDestroy
     public void shutdown() {
-        scorerPool.shutdown();
+        workers.shutdown();
         neuralPool.shutdown();
     }
 
@@ -95,28 +100,37 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
-        List<PairEval> evaluations = pairs.parallelStream()
-                .map(p -> CompletableFuture.supplyAsync(() -> evaluatePair(p, restRows), scorerPool))
-                .map(CompletableFuture::join)
-                .toList();
+        List<PairEval> toNeural = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(pairs.size());
 
-        List<PairEval> toNeural = new ArrayList<>();
-        for (PairEval e : evaluations) {
-            if (e.minScore <= HARD_REJECT_THRESHOLD) continue;
-            if (e.weightedScore >= FAST_CONFIRM_THRESHOLD) {
-                probable.add(mapOriginal(e.pair, restIdx));
-            } else if (e.weightedScore > FAST_REJECT_THRESHOLD) {
-                toNeural.add(e);
-            }
+        for (IndexPair p : pairs) {
+            workers.execute(() -> {
+                try {
+                    PairEval e = evaluatePair(p, restRows);
+                    if (e.avgScore <= HARD_REJECT_THRESHOLD) return;
+                    if (e.weightedScore >= FAST_CONFIRM_THRESHOLD) {
+                        probable.add(mapOriginal(p, restIdx));
+                    } else if (e.weightedScore > FAST_REJECT_THRESHOLD) {
+                        toNeural.add(e);
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        try {
+            latch.await();
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
         }
 
         if (!toNeural.isEmpty()) {
             for (int i = 0; i < toNeural.size(); i += NEURAL_BATCH_SIZE) {
                 int to = Math.min(i + NEURAL_BATCH_SIZE, toNeural.size());
-                var batch = toNeural.subList(i, to);
-                CompletableFuture
-                        .runAsync(() -> processBatch(batch, restRows, restIdx, probable), neuralPool)
-                        .join();
+                List<PairEval> batch = toNeural.subList(i, to);
+                CompletableFuture.runAsync(() ->
+                        processBatch(batch, restRows, restIdx, probable), neuralPool).join();
             }
         }
 
@@ -124,7 +138,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     }
 
     private PairEval evaluatePair(IndexPair pair, List<String> rows) {
-
         String left = rows.get(pair.first());
         String right = rows.get(pair.second());
 
@@ -134,7 +147,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         }
 
         double token = 0, lev = 0, jw = 0;
-
         for (SimilarityScorer s : scorers) {
             if (s instanceof TokenSetRatioScorer) token = s.calculateScore(left, right);
             else if (s instanceof LevenshteinScorer) lev = s.calculateScore(left, right);
@@ -146,10 +158,10 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         if (lev > 0) used++;
         if (jw > 0) used++;
 
-        double avgScore = used > 0 ? (token + lev + jw) / used : 0.0;
-        double weightedScore = TOKEN_WEIGHT * token + LEV_WEIGHT * lev + JW_WEIGHT * jw;
+        double avg = used > 0 ? (token + lev + jw) / used : 0.0;
+        double weighted = TOKEN_WEIGHT * token + LEV_WEIGHT * lev + JW_WEIGHT * jw;
 
-        return new PairEval(pair, avgScore, weightedScore);
+        return new PairEval(pair, avg, weighted);
     }
 
     private void processBatch(List<PairEval> batch,
@@ -157,16 +169,17 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                               List<Integer> idx,
                               Set<IndexPair> probable) {
 
-        List<Pair<String, String>> query = batch.stream()
-                .map(e -> Pair.of(rows.get(e.pair.first()), rows.get(e.pair.second())))
-                .toList();
+        List<Pair<String, String>> q = batch.stream()
+                .map(e -> Pair.of(rows.get(e.pair.first()),
+                        rows.get(e.pair.second())))
+                .collect(Collectors.toList());
 
-        Map<Pair<String, String>, Double> scores = neuralService.fetchBatchSimilarityScores(query);
+        Map<Pair<String, String>, Double> scores =
+                neuralService.fetchBatchSimilarityScores(q);
 
         for (int i = 0; i < batch.size(); i++) {
             IndexPair p = batch.get(i).pair;
-            double score = scores.getOrDefault(query.get(i), 0.0);
-            if (score >= NEURAL_CONFIRM_THRESHOLD) {
+            if (scores.getOrDefault(q.get(i), 0.0) >= NEURAL_CONFIRM_THRESHOLD) {
                 probable.add(mapOriginal(p, idx));
             }
         }
@@ -176,6 +189,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return IndexPair.of(idx.get(p.first()), idx.get(p.second()));
     }
 
-    private record PairEval(IndexPair pair, double minScore, double weightedScore) {
+    private record PairEval(IndexPair pair, double avgScore, double weightedScore) {
     }
 }
