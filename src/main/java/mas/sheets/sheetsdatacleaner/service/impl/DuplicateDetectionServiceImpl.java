@@ -1,7 +1,6 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
 import jakarta.annotation.PreDestroy;
-import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.service.*;
@@ -23,7 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-@Slf4j
 @Service
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
@@ -69,87 +67,56 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
     @Override
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
-        log.info("START");
 
-        /* ---------- 1. Нормализация ---------- */
         List<String> normalized = normalizer.normalizeRows(request.rows());
 
-        for (int i = 0; i < normalized.size(); i++) {
-            log.info("NORM  idx={}   '{}'", i, normalized.get(i));
-        }
-
-        /* ---------- 2. Точные дубликаты ---------- */
         ExactDuplicateDetectorImpl.ExactDetectionResult exact = exactDetector.detect(normalized);
 
         Set<IndexPair<Integer, Integer>> confirmed = ConcurrentHashMap.newKeySet();
         Set<IndexPair<Integer, Integer>> probable = ConcurrentHashMap.newKeySet();
 
-        for (List<Integer> g : exact.duplicateGroups()) {
-            for (int i = 0; i < g.size(); i++) {
-                for (int j = i + 1; j < g.size(); j++) {
-                    IndexPair<Integer, Integer> p = IndexPair.ofNormalized(g.get(i), g.get(j));
-                    confirmed.add(p);
-                    log.info("EXACT  {}  '{}'  <->  {}  '{}'",
-                            p.first(), normalized.get(p.first()),
-                            p.second(), normalized.get(p.second()));
+        for (List<Integer> group : exact.duplicateGroups()) {
+            for (int i = 0; i < group.size(); i++) {
+                for (int j = i + 1; j < group.size(); j++) {
+                    confirmed.add(IndexPair.ofNormalized(group.get(i), group.get(j)));
                 }
             }
         }
 
         if (exact.remainingRows().isEmpty()) {
-            log.info("FINISH");
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
-        /* ---------- 3. MinHash кандидаты ---------- */
-        List<String> restRows = exact.remainingRows();
-        List<Integer> restIdx = exact.originalIndexes();
+        List<String> remainingRows = exact.remainingRows();
+        List<Integer> originalIndexes = exact.originalIndexes();
 
-        Set<IndexPair<Integer, Integer>> pairs = candidateGenerator.generateCandidatePairs(restRows);
-
-        for (IndexPair<Integer, Integer> p : pairs) {
-            log.info("MINHASH  {}  '{}'  <->  {}  '{}'",
-                    restIdx.get(p.first()), restRows.get(p.first()),
-                    restIdx.get(p.second()), restRows.get(p.second()));
-        }
+        Set<IndexPair<Integer, Integer>> pairs = candidateGenerator.generateCandidatePairs(remainingRows);
 
         if (pairs.isEmpty()) {
-            log.info("FINISH");
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
-        /* ---------- 4. Эвристики ---------- */
         List<PairEval> evaluations = pairs.parallelStream()
-                .map(p -> CompletableFuture.supplyAsync(() -> evaluatePair(p, restRows), scorerPool))
+                .map(pair -> CompletableFuture.supplyAsync(() -> evaluatePair(pair, remainingRows), scorerPool))
                 .map(CompletableFuture::join)
                 .toList();
 
         List<PairEval> toNeural = new ArrayList<>();
-        for (PairEval e : evaluations) {
+        for (PairEval evaluation : evaluations) {
 
-            IndexPair<Integer, Integer> p = e.pair;
-            int idxA = restIdx.get(p.first());
-            int idxB = restIdx.get(p.second());
-            String a = restRows.get(p.first());
-            String b = restRows.get(p.second());
+            IndexPair<Integer, Integer> pair = evaluation.pair;
 
-            if (e.minScore <= HARD_REJECT_THRESHOLD) {
-                log.info("HARD_REJECT  {} '{}'  <->  {}  '{}'   min={}", idxA, a, idxB, b, e.minScore);
+            if (evaluation.minScore <= HARD_REJECT_THRESHOLD) {
                 continue;
             }
 
-            if (e.weightedScore >= FAST_CONFIRM_THRESHOLD) {
-                probable.add(mapOriginal(p, restIdx));
-                log.info("FAST_CONFIRM {} '{}'  <->  {} '{}'   score={}", idxA, a, idxB, b, e.weightedScore);
-            } else if (e.weightedScore > FAST_REJECT_THRESHOLD) {
-                toNeural.add(e);
-                log.info("TO_NEURAL    {} '{}'  <->  {} '{}'   score={}", idxA, a, idxB, b, e.weightedScore);
-            } else {
-                log.info("FAST_REJECT  {} '{}'  <->  {} '{}'   score={}", idxA, a, idxB, b, e.weightedScore);
+            if (evaluation.weightedScore >= FAST_CONFIRM_THRESHOLD) {
+                probable.add(mapOriginal(pair, originalIndexes));
+            } else if (evaluation.weightedScore > FAST_REJECT_THRESHOLD) {
+                toNeural.add(evaluation);
             }
         }
 
-        /* ---------- 5. Нейросеть ---------- */
         if (!toNeural.isEmpty()) {
             List<List<PairEval>> batches = new ArrayList<>();
             for (int i = 0; i < toNeural.size(); i += NEURAL_BATCH_SIZE) {
@@ -157,16 +124,14 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             }
 
             List<CompletableFuture<Void>> futures = batches.stream()
-                    .map(b -> CompletableFuture.runAsync(() -> processBatch(b, restRows, restIdx, probable), neuralPool))
+                    .map(batch -> CompletableFuture.runAsync(
+                            () -> processBatch(batch, remainingRows, originalIndexes, probable), neuralPool))
                     .toList();
             futures.forEach(CompletableFuture::join);
         }
 
-        log.info("FINISH");
         return new DuplicateMatchResponse(confirmed, probable);
     }
-
-    /* ======= вспомогательные методы ======= */
 
     private PairEval evaluatePair(IndexPair<Integer, Integer> pair, List<String> rows) {
         String left = rows.get(pair.first());
@@ -177,18 +142,30 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             return new PairEval(pair, 0.0, 0.0);
         }
 
-        double token = 0.0, lev = 0.0, jw = 0.0;
+        double token = 0.0;
+        double lev = 0.0;
+        double jw = 0.0;
 
-        for (SimilarityScorer s : scorers) {
-            if (s instanceof TokenSetRatioScorer) token = s.calculateScore(left, right);
-            else if (s instanceof LevenshteinScorer) lev = s.calculateScore(left, right);
-            else if (s instanceof JaroWinklerScorer) jw = s.calculateScore(left, right);
+        for (SimilarityScorer scorer : scorers) {
+            if (scorer instanceof TokenSetRatioScorer) {
+                token = scorer.calculateScore(left, right);
+            } else if (scorer instanceof LevenshteinScorer) {
+                lev = scorer.calculateScore(left, right);
+            } else if (scorer instanceof JaroWinklerScorer) {
+                jw = scorer.calculateScore(left, right);
+            }
         }
 
         int used = 0;
-        if (token > 0.0) used++;
-        if (lev > 0.0) used++;
-        if (jw > 0.0) used++;
+        if (token > 0.0) {
+            used++;
+        }
+        if (lev > 0.0) {
+            used++;
+        }
+        if (jw > 0.0) {
+            used++;
+        }
 
         double avgScore = used > 0 ? (token + lev + jw) / used : 0.0;
         double weightedScore = TOKEN_WEIGHT * token + LEV_WEIGHT * lev + JW_WEIGHT * jw;
@@ -196,38 +173,29 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return new PairEval(pair, avgScore, weightedScore);
     }
 
-
     private void processBatch(List<PairEval> batch,
                               List<String> rows,
-                              List<Integer> idx,
+                              List<Integer> indexes,
                               Set<IndexPair<Integer, Integer>> probable) {
 
         List<Pair<String, String>> query = batch.stream()
-                .map(e -> Pair.of(rows.get(e.pair.first()), rows.get(e.pair.second())))
+                .map(evaluation -> Pair.of(rows.get(evaluation.pair.first()), rows.get(evaluation.pair.second())))
                 .toList();
 
         Map<Pair<String, String>, Double> scores = neuralService.fetchBatchSimilarityScores(query);
 
         for (int i = 0; i < batch.size(); i++) {
-            IndexPair<Integer, Integer> p = batch.get(i).pair;
+            IndexPair<Integer, Integer> pair = batch.get(i).pair;
             double score = scores.getOrDefault(query.get(i), 0.0);
 
-            int origA = idx.get(p.first());
-            int origB = idx.get(p.second());
-            String a = rows.get(p.first());
-            String b = rows.get(p.second());
-
             if (score >= NEURAL_CONFIRM_THRESHOLD) {
-                probable.add(mapOriginal(p, idx));
-                log.info("NEURAL_CONFIRM {} '{}'  <->  {} '{}'   prob={}", origA, a, origB, b, score);
-            } else {
-                log.info("NEURAL_REJECT  {} '{}'  <->  {} '{}'   prob={}", origA, a, origB, b, score);
+                probable.add(mapOriginal(pair, indexes));
             }
         }
     }
 
-    private IndexPair<Integer, Integer> mapOriginal(IndexPair<Integer, Integer> p, List<Integer> idx) {
-        return IndexPair.ofNormalized(idx.get(p.first()), idx.get(p.second()));
+    private IndexPair<Integer, Integer> mapOriginal(IndexPair<Integer, Integer> pair, List<Integer> indexes) {
+        return IndexPair.ofNormalized(indexes.get(pair.first()), indexes.get(pair.second()));
     }
 
     private record PairEval(IndexPair<Integer, Integer> pair, double minScore, double weightedScore) {
