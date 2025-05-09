@@ -3,6 +3,9 @@ spring.application.name: sheets-data-cleaner
 server:
   port: 8081
 
+  tomcat:
+    max-http-form-post-size: 15MB
+
 management:
   server:
     port: 8082

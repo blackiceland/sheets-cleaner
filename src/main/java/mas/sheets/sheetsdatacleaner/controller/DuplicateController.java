@@ -1,12 +1,11 @@
 package mas.sheets.sheetsdatacleaner.controller;
 
-import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 
-import java.util.List;
+import java.io.InputStream;
 
 public interface DuplicateController {
 
-    DuplicateMatchResponse detectDuplicates(DuplicateMatchRequest request);
+    DuplicateMatchResponse detectDuplicates(InputStream request);
 
 }

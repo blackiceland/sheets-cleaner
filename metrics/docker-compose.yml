@@ -10,6 +10,7 @@ services:
     ports: [ "8081:8081" ]          # API
     environment:
       MANAGEMENT_SERVER_PORT: 8082
+      JAVA_TOOL_OPTIONS: "-Xms1g -Xmx2g"
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
       interval: 10s
