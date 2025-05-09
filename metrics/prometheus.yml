@@ -4,9 +4,16 @@ global:
 
 scrape_configs:
   - job_name: cleaner
-    metrics_path: /actuator/prometheus   # ← корректный путь
+    metrics_path: /actuator/prometheus
     static_configs:
       - targets: ["cleaner:8082"]
 
-  # similarity оставляем закомментированным,
-  # пока там не появится собственный энд-пойнт метрик
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+
