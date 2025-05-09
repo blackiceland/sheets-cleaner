@@ -23,6 +23,7 @@ public class DuplicateControllerImpl implements DuplicateController {
     @PostMapping(DUPLICATES)
     public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
         log.debug("Detecting duplicates for {} rows", request.rows().size());
+        if (true) throw new RuntimeException("boom");
 
         return duplicateDetectionService.findDuplicates(request);
     }
