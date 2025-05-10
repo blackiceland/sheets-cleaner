@@ -1,12 +1,10 @@
-package mas.sheets.sheetsdatacleaner.properties;
+package mas.sheets.sheetsdatacleaner.config.properties;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "embedding.api")
-@Getter
-@Setter
+@Data
 public class EmbeddingApiProperties {
     private String url;
 }

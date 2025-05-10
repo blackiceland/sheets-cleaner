@@ -1,0 +1,25 @@
+version: "3.9"
+
+secrets:
+  dup_min_sim: { external: true }
+  dup_batch_size: { external: true }
+  tg_bot_token: { external: true }
+
+services:
+  cleaner:
+    image: ghcr.io/anton/sheets-data-cleaner:1.0.0
+    deploy:
+      replicas: 2
+    environment:
+      - JAVA_TOOL_OPTIONS=-Xms1g -Xmx2g
+      - DUP_MIN_SIM_FILE=/run/secrets/dup_min_sim
+      - DUP_BATCH_SIZE_FILE=/run/secrets/dup_batch_size
+      - TG_BOT_TOKEN_FILE=/run/secrets/tg_bot_token
+    secrets:
+      - dup_min_sim
+      - dup_batch_size
+      - tg_bot_token
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/actuator/health" ]
+      interval: 3s
+      retries: 3

@@ -16,7 +16,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,configprops
   metrics:
     distribution:
       percentiles-histogram:
@@ -73,3 +73,11 @@ resilience4j:
         ignoreExceptions:
           - java.util.concurrent.CancellationException
         writableStackTraceEnabled: false
+
+duplicate:
+  min-similarity: ${DUP_MIN_SIM:85}
+  batch-size: ${DUP_BATCH_SIZE:1000}
+
+telegram:
+  bot:
+    token: ${TG_BOT_TOKEN}

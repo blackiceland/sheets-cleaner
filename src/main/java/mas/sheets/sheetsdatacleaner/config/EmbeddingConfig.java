@@ -2,7 +2,7 @@ package mas.sheets.sheetsdatacleaner.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
-import mas.sheets.sheetsdatacleaner.properties.EmbeddingApiProperties;
+import mas.sheets.sheetsdatacleaner.config.properties.EmbeddingApiProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

@@ -2,6 +2,7 @@ package mas.sheets.sheetsdatacleaner.service.impl;
 
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import jakarta.annotation.PreDestroy;
+import mas.sheets.sheetsdatacleaner.config.properties.DuplicateProperties;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
@@ -41,6 +42,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private final RowNormalizerService normalizer;
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
+    private final DuplicateProperties duplicateProperties;
 
     private final BlockingQueue<Runnable> queue =
             new ArrayBlockingQueue<>(MAX_IN_FLIGHT);
@@ -57,12 +59,14 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             MinHashCandidateDetectionService candidateGenerator,
             RowNormalizerService normalizer,
             @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
-            NeuralSimilarityService neuralService) {
+            NeuralSimilarityService neuralService,
+            DuplicateProperties duplicateProperties) {
         this.exactDetector = exactDetector;
         this.candidateGenerator = candidateGenerator;
         this.normalizer = normalizer;
         this.scorers = scorers;
         this.neuralService = neuralService;
+        this.duplicateProperties = duplicateProperties;
     }
 
     @PreDestroy
