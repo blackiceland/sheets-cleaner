@@ -1,5 +1,6 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import jakarta.annotation.PreDestroy;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
@@ -71,6 +72,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     }
 
     @Override
+    @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
 
         List<String> normalized = normalizer.normalizeRows(request.rows());

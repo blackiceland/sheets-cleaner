@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 class MinHashCandidateDetectionServiceTest {
@@ -99,22 +98,6 @@ class MinHashCandidateDetectionServiceTest {
             }
         }
         assertThat(emptyStringMatched).isFalse();
-    }
-
-    private boolean pairExists(Set<IndexPair> indexPairs, int i, int j) {
-        // Нормализуем индексы, чтобы i <= j
-        if (i > j) {
-            int temp = i;
-            i = j;
-            j = temp;
-        }
-
-        for (IndexPair indexPair : indexPairs) {
-            if (indexPair.first() == i && indexPair.second() == j) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Test

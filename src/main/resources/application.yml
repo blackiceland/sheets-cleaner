@@ -4,7 +4,11 @@ server:
   port: 8081
 
   tomcat:
-    max-http-form-post-size: 15MB
+    max-http-form-post-size: 15MB       # строкой или в кавычках
+    threads:
+      max: 30                           # было max-threads
+      min-spare: 10                     # было min-spare-threads
+    accept-count: 50
 
 management:
   server:
@@ -36,6 +40,9 @@ resilience4j:
         maxConcurrentCalls: 8           # ≤ число CPU-ядер
         maxWaitDuration: 50ms
         writableStackTraceEnabled: false
+      duplicateDetector: # имя произвольное
+        maxConcurrentCalls: 20     # сколько findDuplicates можно держать одновременно
+        maxWaitDuration: 200ms     # запросы сверх лимита ждут 200 мс → 429
 
   timelimiter:
     instances:
