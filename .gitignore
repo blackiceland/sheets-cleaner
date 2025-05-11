@@ -34,4 +34,5 @@ build/
 
 # secrets
 metrics/.env
+metrics/alertmanager.yml
 
