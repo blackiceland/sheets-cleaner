@@ -46,6 +46,7 @@ public class DuplicateDetectionServiceTest {
                     .waitingFor(Wait.forHttp("/health").forStatusCode(200))
                     .withStartupTimeout(Duration.ofMinutes(4))
                     .withReuse(false);
+
     @Test
     @DisplayName("detects exact duplicates without neural service")
     void shouldDetectExactDuplicates() {

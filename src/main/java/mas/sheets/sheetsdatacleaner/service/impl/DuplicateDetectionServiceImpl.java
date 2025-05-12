@@ -81,7 +81,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         var exact = exactDetector.detect(normalized);
 
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();  // 100 % дубликаты
-        Set<IndexPair> probable  = ConcurrentHashMap.newKeySet();  // “похоже, дубликаты”
+        Set<IndexPair> probable = ConcurrentHashMap.newKeySet();  // “похоже, дубликаты”
 
         for (List<Integer> g : exact.duplicateGroups()) {
             for (int i = 0; i < g.size(); i++)
@@ -101,15 +101,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             return new DuplicateMatchResponse(confirmed, probable);
 
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
-        CountDownLatch latch   = new CountDownLatch(pairs.size());
+        CountDownLatch latch = new CountDownLatch(pairs.size());
 
         for (IndexPair p : pairs) {
             Runnable task = () -> {
                 try {
                     PairEval e = evaluatePair(p, restRows);
-                    if (e.avgScore <= HARD_REJECT_THRESHOLD)           return;
-                    if (e.weightedScore >= FAST_CONFIRM_THRESHOLD)     probable.add(mapOriginal(p, restIdx));
-                    else if (e.weightedScore >  FAST_REJECT_THRESHOLD) toNeural.add(e);
+                    if (e.avgScore <= HARD_REJECT_THRESHOLD) return;
+                    if (e.weightedScore >= FAST_CONFIRM_THRESHOLD) probable.add(mapOriginal(p, restIdx));
+                    else if (e.weightedScore > FAST_REJECT_THRESHOLD) toNeural.add(e);
                 } finally {
                     latch.countDown();
                 }

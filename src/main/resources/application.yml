@@ -26,7 +26,7 @@ management:
 
 embedding:
   api:
-    url: http://embedding:5000/similarity
+    base-url: http://embedding:5000/similarity
 
 logging:
   level:

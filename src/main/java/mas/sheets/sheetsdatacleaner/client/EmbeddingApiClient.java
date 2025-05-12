@@ -6,8 +6,8 @@ import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -22,14 +22,25 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class EmbeddingApiClient {
 
     private final ObjectMapper mapper;
     private final HttpClient http;
-    private final URI api;
+    @Qualifier("embeddingApiUri")
+    URI api;
     private final ExecutorService embeddingExecutor;
+
+    public EmbeddingApiClient(
+            ObjectMapper mapper,
+            HttpClient http,
+            @Qualifier("embeddingApiUri") URI api,
+            ExecutorService executor) {
+        this.mapper = mapper;
+        this.http = http;
+        this.api = api;
+        this.embeddingExecutor = executor;
+    }
 
     @Bulkhead(name = "embeddingApi", type = Bulkhead.Type.SEMAPHORE)
     @TimeLimiter(name = "embeddingApi")
@@ -39,6 +50,7 @@ public class EmbeddingApiClient {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String body = mapper.writeValueAsString(payload);
+
                 HttpRequest req = HttpRequest.newBuilder(api)
                         .timeout(Duration.ofSeconds(10))
                         .header("Content-Type", "application/json")

@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -30,16 +32,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DuplicateControllerImplTest {
 
-    private static final String CONTAINER_IMAGE = "similarity:0.3.0";
     private static final int CONTAINER_PORT = 5000;
 
-    @Container
+    // убираем @Container – будем стартовать вручную
     private static final GenericContainer<?> container =
-            new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
+            new GenericContainer<>(DockerImageName.parse("similarity:0.3.0"))
                     .withExposedPorts(CONTAINER_PORT)
                     .waitingFor(Wait.forHttp("/health").forStatusCode(200))
-                    .withStartupTimeout(Duration.ofMinutes(4))
-                    .withReuse(false);
+                    .withStartupTimeout(Duration.ofMinutes(4));
+
+    static {
+        container.start();
+    }
+
+    @DynamicPropertySource
+    static void override(DynamicPropertyRegistry r) {
+        r.add("embedding.api.base-url", () ->
+                "http://" + container.getHost() + ":" +
+                        container.getMappedPort(CONTAINER_PORT) + "/similarity");
+    }
+
 
     @Autowired
     MockMvc mvc;
@@ -50,6 +62,7 @@ class DuplicateControllerImplTest {
     @Test
     void detectsDuplicatesForThousandRows() throws Exception {
         List<List<String>> rows = DuplicateDatasetGenerator.build();
+
         byte[] response = mvc.perform(
                         post("/api/v1/sheets/duplicates")
                                 .contentType(MediaType.APPLICATION_JSON)

@@ -17,10 +17,10 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class DuplicateDatasetGenerator {
 
     /* ---------- параметры ---------- */
-    private static final int TOTAL = 1_000;
-    private static final int GROUPS = 250;
+    private static final int TOTAL = 100;
+    private static final int GROUPS = 25;
     private static final int VARIATIONS = 3;
-    private static final int UNIQUES = TOTAL - GROUPS * VARIATIONS;
+    private static final int UNIQUES = TOTAL - GROUPS * VARIATIONS; // 25
 
     private static final String[] FN = {"John", "Maria", "Robert", "Sarah", "Michael",
             "Jennifer", "David", "Elizabeth", "James", "Patricia", "William", "Linda"};
