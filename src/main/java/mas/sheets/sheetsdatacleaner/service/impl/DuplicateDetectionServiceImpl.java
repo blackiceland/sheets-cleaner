@@ -74,70 +74,77 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     @Override
     @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
-
+        // ── 1. Normalise входные строки ───────────────────────────────
         List<String> normalized = normalizer.normalizeRows(request.rows());
 
+        // ── 2. Точное совпадение (hash-группы) ─────────────────────────
         var exact = exactDetector.detect(normalized);
 
-        Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
-        Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
+        Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();  // 100 % дубликаты
+        Set<IndexPair> probable  = ConcurrentHashMap.newKeySet();  // “похоже, дубликаты”
 
         for (List<Integer> g : exact.duplicateGroups()) {
-            for (int i = 0; i < g.size(); i++) {
-                for (int j = i + 1; j < g.size(); j++) {
+            for (int i = 0; i < g.size(); i++)
+                for (int j = i + 1; j < g.size(); j++)
                     confirmed.add(IndexPair.of(g.get(i), g.get(j)));
-                }
-            }
         }
 
-        if (exact.remainingRows().isEmpty()) {
+        if (exact.remainingRows().isEmpty())
             return new DuplicateMatchResponse(confirmed, probable);
-        }
 
+        // ── 3. Кандидаты MinHash + эвристика ──────────────────────────
         List<String> restRows = exact.remainingRows();
         List<Integer> restIdx = exact.originalIndexes();
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
-        if (pairs.isEmpty()) {
+        if (pairs.isEmpty())
             return new DuplicateMatchResponse(confirmed, probable);
-        }
 
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(pairs.size());
+        CountDownLatch latch   = new CountDownLatch(pairs.size());
 
         for (IndexPair p : pairs) {
-            workers.execute(() -> {
+            Runnable task = () -> {
                 try {
                     PairEval e = evaluatePair(p, restRows);
-                    if (e.avgScore <= HARD_REJECT_THRESHOLD) return;
-                    if (e.weightedScore >= FAST_CONFIRM_THRESHOLD) {
-                        probable.add(mapOriginal(p, restIdx));
-                    } else if (e.weightedScore > FAST_REJECT_THRESHOLD) {
-                        toNeural.add(e);
-                    }
+                    if (e.avgScore <= HARD_REJECT_THRESHOLD)           return;
+                    if (e.weightedScore >= FAST_CONFIRM_THRESHOLD)     probable.add(mapOriginal(p, restIdx));
+                    else if (e.weightedScore >  FAST_REJECT_THRESHOLD) toNeural.add(e);
                 } finally {
                     latch.countDown();
                 }
-            });
+            };
+
+            // ❶  При переполнении очереди – выполняем прямо в текущем потоке
+            try {
+                workers.execute(task);
+            } catch (RejectedExecutionException ex) {
+                task.run();                 // Caller-runs fallback
+            }
         }
 
         try {
             latch.await();
-        } catch (InterruptedException ignored) {
+        } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
 
+        // ── 4. До-оценка нейросетью “трудных” пар ──────────────────────
         if (!toNeural.isEmpty()) {
             for (int i = 0; i < toNeural.size(); i += NEURAL_BATCH_SIZE) {
                 int to = Math.min(i + NEURAL_BATCH_SIZE, toNeural.size());
                 List<PairEval> batch = toNeural.subList(i, to);
-                CompletableFuture.runAsync(() ->
-                        processBatch(batch, restRows, restIdx, probable), neuralPool).join();
+
+                CompletableFuture
+                        .runAsync(() -> processBatch(batch, restRows, restIdx, probable), neuralPool)
+                        .join();     // ждём, чтобы сохранить детерминизм результата
             }
         }
 
+        // ── 5. Итог ────────────────────────────────────────────────────
         return new DuplicateMatchResponse(confirmed, probable);
     }
+
 
     private PairEval evaluatePair(IndexPair pair, List<String> rows) {
         String left = rows.get(pair.first());

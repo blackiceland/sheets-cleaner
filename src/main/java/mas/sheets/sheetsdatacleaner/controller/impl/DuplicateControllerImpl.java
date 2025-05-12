@@ -5,12 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.controller.DuplicateController;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
-import mas.sheets.sheetsdatacleaner.parser.RowJsonStreamParser;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.InputStream;
 import java.util.List;
 
 import static mas.sheets.sheetsdatacleaner.util.CleanerUtils.DUPLICATES;
@@ -21,14 +21,14 @@ import static mas.sheets.sheetsdatacleaner.util.CleanerUtils.DUPLICATES;
 public class DuplicateControllerImpl implements DuplicateController {
 
     private final DuplicateDetectionService duplicateDetectionService;
-    private final RowJsonStreamParser rowJsonStreamParser;
 
     @Override
-    @PostMapping(DUPLICATES)
-    public DuplicateMatchResponse detectDuplicates(InputStream request) {
-        List<List<String>> rows = rowJsonStreamParser.parse(request);
+    @PostMapping(
+            value = DUPLICATES,
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public DuplicateMatchResponse detectDuplicates(@RequestBody List<List<String>> rows) {
         log.info("Detecting duplicates for {} rows", rows.size());
-
         return duplicateDetectionService.findDuplicates(new DuplicateMatchRequest(rows));
     }
 }
