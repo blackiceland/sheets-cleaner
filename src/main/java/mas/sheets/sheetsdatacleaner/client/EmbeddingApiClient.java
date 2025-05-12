@@ -44,7 +44,9 @@ public class EmbeddingApiClient {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(body))
                         .build();
+
                 String json = http.send(req, HttpResponse.BodyHandlers.ofString()).body();
+
                 return mapper.readValue(json, new TypeReference<>() {
                 });
 

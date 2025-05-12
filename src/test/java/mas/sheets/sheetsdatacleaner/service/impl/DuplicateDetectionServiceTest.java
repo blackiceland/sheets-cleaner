@@ -18,9 +18,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -34,23 +34,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class DuplicateDetectionServiceTest {
+public class DuplicateDetectionServiceTest {
 
+    private static final String CONTAINER_IMAGE = "similarity:0.3.0";
     private static final int CONTAINER_PORT = 5000;
 
-    private static final ImageFromDockerfile SIMILARITY_IMAGE =
-            new ImageFromDockerfile("similarity:0.3.0", false)
-                    .withFileFromClasspath(".", "similarity");
-
     @Container
-    private static final GenericContainer<?> SIMILARITY =
-            new GenericContainer<>(SIMILARITY_IMAGE)
-                    .withExposedPorts(5000)
-                    .waitingFor(Wait.forHttp("/health")
-                            .forPort(5000).forStatusCode(200))
+    private static final GenericContainer<?> container =
+            new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
+                    .withExposedPorts(CONTAINER_PORT)
+                    .waitingFor(Wait.forHttp("/health").forStatusCode(200))
                     .withStartupTimeout(Duration.ofMinutes(4))
-                    .withReuse(true);
-
+                    .withReuse(false);
     @Test
     @DisplayName("detects exact duplicates without neural service")
     void shouldDetectExactDuplicates() {
@@ -97,9 +92,9 @@ class DuplicateDetectionServiceTest {
     @DisplayName("detects duplicates using real similarity container")
     void shouldDetectDuplicatesWithContainer(List<List<String>> rows) {
 
-        if (!SIMILARITY.isRunning()) SIMILARITY.start();
+        if (!container.isRunning()) container.start();
 
-        String base = "http://%s:%d/similarity".formatted(SIMILARITY.getHost(), SIMILARITY.getMappedPort(CONTAINER_PORT));
+        String base = "http://%s:%d/similarity".formatted(container.getHost(), container.getMappedPort(CONTAINER_PORT));
 
         var mapper = new ObjectMapper();
         var http = HttpClient.newHttpClient();

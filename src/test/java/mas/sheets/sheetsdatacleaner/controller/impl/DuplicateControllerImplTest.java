@@ -10,8 +10,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -32,24 +30,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DuplicateControllerImplTest {
 
-    private static final DockerImageName IMAGE =
-            DockerImageName.parse("similarity:0.3.0");
+    private static final String CONTAINER_IMAGE = "similarity:0.3.0";
+    private static final int CONTAINER_PORT = 5000;
 
     @Container
-    static final GenericContainer<?> similarity =
-            new GenericContainer<>(IMAGE)
-                    .withExposedPorts(5000)
-                    .waitingFor(
-                            Wait.forHttp("/health")
-                                    .forStatusCode(200)
-                                    .withStartupTimeout(Duration.ofMinutes(3)))
-                    .withReuse(true);
-
-    @DynamicPropertySource
-    static void registerBaseUrl(DynamicPropertyRegistry registry) {
-        String url = "http://" + similarity.getHost() + ':' + similarity.getMappedPort(5000) + "/similarity";
-        registry.add("similarity.base-url", () -> url);
-    }
+    private static final GenericContainer<?> container =
+            new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
+                    .withExposedPorts(CONTAINER_PORT)
+                    .waitingFor(Wait.forHttp("/health").forStatusCode(200))
+                    .withStartupTimeout(Duration.ofMinutes(4))
+                    .withReuse(false);
 
     @Autowired
     MockMvc mvc;
