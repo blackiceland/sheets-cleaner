@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 @Service
@@ -35,21 +36,20 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         for (int i = 0; i < SIGNATURE_SIZE; i++) SEED[i] = r.nextInt();
     }
 
-    private static final LshParams DEFAULT_PARAMS = new LshParams(4,
-            SIGNATURE_SIZE / 4,
-            0.22,
-            0.23);
+    private static final LshParams DEFAULT_PARAMS =
+            new LshParams(4, SIGNATURE_SIZE / 4, 0.22, 0.23);
+    private final AtomicReference<LshParams> params =
+            new AtomicReference<>(DEFAULT_PARAMS);
 
-    private final AtomicReference<LshParams> params = new AtomicReference<>(DEFAULT_PARAMS);
-
-    private record LshParams(int bandSize, int bandCount, double thrShort, double thrLong) {
+    private record LshParams(int bandSize, int bandCount,
+                             double thrShort, double thrLong) {
     }
 
     @Override
     public Set<IndexPair> generateCandidatePairs(List<String> rows) {
+
         if (rows == null || rows.isEmpty()) return Collections.emptySet();
         if (rows.size() > MAX_BATCH) throw new IllegalArgumentException("Batch too large");
-
         if (params.get() == DEFAULT_PARAMS) autocalibrate(rows);
 
         LshParams p = params.get();
@@ -64,13 +64,24 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                 if (raw == null) raw = "";
                 raw = Normalizer.normalize(raw, Normalizer.Form.NFKC);
                 if (raw.length() > MAX_LEN) raw = raw.substring(0, MAX_LEN);
+
+                int effectiveLen = raw.replaceAll("[^\\p{L}\\p{N}]", "").length();
+                String acronym = Arrays.stream(raw.split("\\W+"))
+                        .filter(t -> !t.isEmpty())
+                        .map(t -> t.substring(0, 1).toLowerCase())
+                        .collect(Collectors.joining());
+
                 IntOpenHashSet grams = collectTrigrams(raw);
+
                 buf[i] = new MinHashData(buildSignature(grams),
                         grams.toIntArray(),
-                        raw.replace('|', ' ').length());
+                        raw.replace('|', ' ').length(),
+                        effectiveLen,
+                        acronym);
             } catch (Exception e) {
                 log.error("row {} processing failed: {}", i, e.getMessage());
-                buf[i] = new MinHashData(new int[SIGNATURE_SIZE], new int[0], 0);
+                buf[i] = new MinHashData(new int[SIGNATURE_SIZE],
+                        new int[0], 0, 0, "");
             }
         });
 
@@ -95,8 +106,15 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                 for (int j = i + 1; j < sz; j++) {
                     int b = arr[j];
                     if (pairCnt[b] >= MAX_PAIRS_PER_ROW) continue;
+
+                    // Δ-length soft filter + acronym safeguard
+                    if (!sameAcronym(buf[a], buf[b]) &&
+                            !lenCompatible(buf[a], buf[b])) continue;
+
                     double thr = threshold(buf[a].len, buf[b].len, p);
-                    if (passes(buf[a], buf[b], thr) || wordOverlap(rows.get(a), rows.get(b))) {
+                    if (passes(buf[a], buf[b], thr) ||
+                            wordOverlap(rows.get(a), rows.get(b))) {
+
                         out.add(IndexPair.of(a, b));
                         if (++pairCnt[a] >= MAX_PAIRS_PER_ROW) break;
                         pairCnt[b]++;
@@ -107,50 +125,20 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return out;
     }
 
-    private void autocalibrate(List<String> rows) {
-        int total = rows.size();
-        if (total < 50) return;
+    /* ---------- helper filters ---------- */
 
-        int sampleSize = Math.min(300, Math.max(50, total / 10));
-        Random rnd = new Random(123);
-        List<int[]> sigs = new ArrayList<>(sampleSize);
-        for (int i = 0; i < sampleSize; i++) {
-            String s = rows.get(rnd.nextInt(total));
-            sigs.add(buildSignature(collectTrigrams(s)));
-        }
-
-        int bestBand = 4;
-        double bestDelta = Double.MAX_VALUE;
-        for (int cand : new int[]{4, 5, 6, 8}) {
-            int bandCnt = SIGNATURE_SIZE / cand;
-            long pairs = 0;
-            Map<Long, IntArrayList> tmp = new HashMap<>(sampleSize * bandCnt / 4);
-            for (int idx = 0; idx < sampleSize; idx++) {
-                int[] sig = sigs.get(idx);
-                for (int b = 0; b < bandCnt; b++) {
-                    long k = (((long) sig[b * cand]) << 32)
-                            ^ (sig[b * cand + 1] & 0xffffffffL);
-                    tmp.computeIfAbsent(k, k2 -> new IntArrayList()).add(idx);
-                }
-            }
-            for (IntArrayList l : tmp.values()) {
-                int m = l.size();
-                pairs += (long) m * (m - 1) / 2;
-            }
-            double delta = Math.abs(pairs / (double) sampleSize - 0.4);
-            if (delta < bestDelta) {
-                bestDelta = delta;
-                bestBand = cand;
-            }
-        }
-
-        double sThr = 0.22, lThr = 0.23;
-        if (bestBand > 4) {
-            sThr += 0.03;
-            lThr += 0.03;
-        }
-        params.set(new LshParams(bestBand, SIGNATURE_SIZE / bestBand, sThr, lThr));
+    private static boolean lenCompatible(MinHashData x, MinHashData y) {
+        if (x.effLen < 16 || y.effLen < 16) return true;
+        int diff = Math.abs(x.effLen - y.effLen);
+        int max = Math.max(x.effLen, y.effLen);
+        return diff <= 0.5 * max;
     }
+
+    private static boolean sameAcronym(MinHashData x, MinHashData y) {
+        return !x.acronym.isEmpty() && x.acronym.equals(y.acronym);
+    }
+
+    /* ---------- unchanged support code ---------- */
 
     private boolean wordOverlap(String a, String b) {
         IntOpenHashSet seen = new IntOpenHashSet();
@@ -198,6 +186,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
     private boolean passes(MinHashData a, MinHashData b, double thr) {
         if (a.ngrams.length == 0 || b.ngrams.length == 0) return false;
+
         int inter = 0, i = 0, j = 0;
         while (i < a.ngrams.length && j < b.ngrams.length) {
             if (a.ngrams[i] == b.ngrams[j]) {
@@ -207,9 +196,12 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             } else if (a.ngrams[i] < b.ngrams[j]) i++;
             else j++;
         }
-        int minOverlap = Math.min(a.len, b.len) < VERY_SHORT_LEN
-                ? MIN_OVERLAP_VERY_SHORT : MIN_NGRAM_OVERLAP;
+
+        int dynMin = Math.max(MIN_NGRAM_OVERLAP, Math.min(a.len, b.len) / 6);
+        int minOverlap = Math.min(a.len, b.len) < VERY_SHORT_LEN ?
+                MIN_OVERLAP_VERY_SHORT : dynMin;
         if (inter < minOverlap) return false;
+
         int union = a.ngrams.length + b.ngrams.length - inter;
         return inter >= thr * union;
     }
@@ -222,15 +214,68 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return p.thrShort() - k * (p.thrShort() - p.thrLong());
     }
 
+    /* ---------- calibration (unchanged) ---------- */
+
+    private void autocalibrate(List<String> rows) {
+        int total = rows.size();
+        if (total < 50) return;
+
+        int sampleSize = Math.min(300, Math.max(50, total / 10));
+        Random rnd = new Random(123);
+        List<int[]> sigs = new ArrayList<>(sampleSize);
+        for (int i = 0; i < sampleSize; i++) {
+            String s = rows.get(rnd.nextInt(total));
+            sigs.add(buildSignature(collectTrigrams(s)));
+        }
+
+        int bestBand = 4;
+        double bestDelta = Double.MAX_VALUE;
+        for (int cand : new int[]{4, 5, 6, 8}) {
+            int bandCnt = SIGNATURE_SIZE / cand;
+            long pairs = 0;
+            Map<Long, IntArrayList> tmp = new HashMap<>(sampleSize * bandCnt / 4);
+            for (int idx = 0; idx < sampleSize; idx++) {
+                int[] sig = sigs.get(idx);
+                for (int b = 0; b < bandCnt; b++) {
+                    long k = (((long) sig[b * cand]) << 32)
+                            ^ (sig[b * cand + 1] & 0xffffffffL);
+                    tmp.computeIfAbsent(k, l -> new IntArrayList()).add(idx);
+                }
+            }
+            for (IntArrayList l : tmp.values()) {
+                int m = l.size();
+                pairs += (long) m * (m - 1) / 2;
+            }
+            double delta = Math.abs(pairs / (double) sampleSize - 0.4);
+            if (delta < bestDelta) {
+                bestDelta = delta;
+                bestBand = cand;
+            }
+        }
+
+        double sThr = 0.22, lThr = 0.23;
+        if (bestBand > 4) {
+            sThr += 0.03;
+            lThr += 0.03;
+        }
+        params.set(new LshParams(bestBand, SIGNATURE_SIZE / bestBand, sThr, lThr));
+    }
+
+    /* ---------- data holder ---------- */
+
     private static final class MinHashData {
         final int[] signature;
         final int[] ngrams;
         final int len;
+        final int effLen;
+        final String acronym;
 
-        MinHashData(int[] sig, int[] grams, int len) {
+        MinHashData(int[] sig, int[] grams, int len, int effLen, String acr) {
             this.signature = sig;
             this.ngrams = unique(grams);
             this.len = len;
+            this.effLen = effLen;
+            this.acronym = acr;
         }
 
         private static int[] unique(int[] arr) {
