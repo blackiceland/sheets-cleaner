@@ -1,5 +1,6 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -27,7 +28,12 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
     private static final int MIN_NGRAM_OVERLAP = 8;
     private static final int MAX_BATCH = 100_000;
     private static final int MAX_LEN = 1_000;
-    private static final int MAX_PAIRS_PER_ROW = 1_000;
+
+    /* ← правка: жёсткий лимит «звёзд» */
+    private static final int MAX_PAIRS_PER_ROW = 30;
+
+    /* stop-лист: 24-битная маска → 2 МБ BitSet */
+    private static final int HASH_MASK = (1 << 24) - 1;
 
     private static final int[] SEED = new int[SIGNATURE_SIZE];
 
@@ -38,12 +44,12 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
     private static final LshParams DEFAULT_PARAMS =
             new LshParams(4, SIGNATURE_SIZE / 4, 0.22, 0.23);
-    private final AtomicReference<LshParams> params =
-            new AtomicReference<>(DEFAULT_PARAMS);
+    private final AtomicReference<LshParams> params = new AtomicReference<>(DEFAULT_PARAMS);
 
-    private record LshParams(int bandSize, int bandCount,
-                             double thrShort, double thrLong) {
+    private record LshParams(int bandSize, int bandCount, double thrShort, double thrLong) {
     }
+
+    /* ====================================================================== */
 
     @Override
     public Set<IndexPair> generateCandidatePairs(List<String> rows) {
@@ -52,9 +58,27 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         if (rows.size() > MAX_BATCH) throw new IllegalArgumentException("Batch too large");
         if (params.get() == DEFAULT_PARAMS) autocalibrate(rows);
 
+        /* ---------- online stop-list (отсечение > 5 % строк) ---------- */
+        BitSet noisy;
+        if (rows.size() < 200) {
+            noisy = new BitSet(0);                             // малый батч → фильтр выключен
+        } else {
+            int limit = Math.max(20, rows.size() / 50);   // раньше /33  (3 %)
+            Int2IntOpenHashMap df = new Int2IntOpenHashMap(1 << 18);
+
+            rows.forEach(r -> collectTrigrams(r == null ? "" : r)
+                    .forEach(g -> df.addTo(g & HASH_MASK, 1)));
+
+            noisy = new BitSet(1 << 24);
+            df.int2IntEntrySet().forEach(e -> {
+                if (e.getIntValue() >= limit) noisy.set(e.getIntKey());
+            });
+            df.clear();
+        }
+
+        /* ---------- подготовка строк ---------- */
         LshParams p = params.get();
-        int bandSize = p.bandSize();
-        int bandCount = p.bandCount();
+        int bandSize = p.bandSize(), bandCount = p.bandCount();
         int n = rows.size();
         MinHashData[] buf = new MinHashData[n];
 
@@ -65,7 +89,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                 raw = Normalizer.normalize(raw, Normalizer.Form.NFKC);
                 if (raw.length() > MAX_LEN) raw = raw.substring(0, MAX_LEN);
 
-                int effectiveLen = raw.replaceAll("[^\\p{L}\\p{N}]", "").length();
+                int effLen = raw.replaceAll("[^\\p{L}\\p{N}]", "").length();
                 String acronym = Arrays.stream(raw.split("\\W+"))
                         .filter(t -> !t.isEmpty())
                         .map(t -> t.substring(0, 1).toLowerCase())
@@ -73,18 +97,20 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
                 IntOpenHashSet grams = collectTrigrams(raw);
 
-                buf[i] = new MinHashData(buildSignature(grams),
+                buf[i] = new MinHashData(
+                        buildSignature(grams, noisy),
                         grams.toIntArray(),
                         raw.replace('|', ' ').length(),
-                        effectiveLen,
-                        acronym);
+                        effLen,
+                        acronym
+                );
             } catch (Exception e) {
                 log.error("row {} processing failed: {}", i, e.getMessage());
-                buf[i] = new MinHashData(new int[SIGNATURE_SIZE],
-                        new int[0], 0, 0, "");
+                buf[i] = new MinHashData(new int[SIGNATURE_SIZE], new int[0], 0, 0, "");
             }
         });
 
+        /* ---------- LSH-корзины и ограничение MAX_PAIRS_PER_ROW ---------- */
         int[] pairCnt = new int[n];
         Map<Long, IntArrayList> buckets = new HashMap<>(n * bandCount / 4);
         for (int idx = 0; idx < n; idx++) {
@@ -107,14 +133,10 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                     int b = arr[j];
                     if (pairCnt[b] >= MAX_PAIRS_PER_ROW) continue;
 
-                    // Δ-length soft filter + acronym safeguard
-                    if (!sameAcronym(buf[a], buf[b]) &&
-                            !lenCompatible(buf[a], buf[b])) continue;
+                    if (!sameAcronym(buf[a], buf[b]) && !lenCompatible(buf[a], buf[b])) continue;
 
                     double thr = threshold(buf[a].len, buf[b].len, p);
-                    if (passes(buf[a], buf[b], thr) ||
-                            wordOverlap(rows.get(a), rows.get(b))) {
-
+                    if (passes(buf[a], buf[b], thr) || wordOverlap(rows.get(a), rows.get(b))) {
                         out.add(IndexPair.of(a, b));
                         if (++pairCnt[a] >= MAX_PAIRS_PER_ROW) break;
                         pairCnt[b]++;
@@ -122,10 +144,13 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                 }
             }
         });
+
+        log.info("{} rows processed", out.size());
+
         return out;
     }
 
-    /* ---------- helper filters ---------- */
+    /* ---------- вспомогательные фильтры ---------- */
 
     private static boolean lenCompatible(MinHashData x, MinHashData y) {
         if (x.effLen < 16 || y.effLen < 16) return true;
@@ -138,17 +163,21 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return !x.acronym.isEmpty() && x.acronym.equals(y.acronym);
     }
 
-    /* ---------- unchanged support code ---------- */
+    /* ---------- построение подписи с учётом stop-листа ---------- */
 
-    private boolean wordOverlap(String a, String b) {
-        IntOpenHashSet seen = new IntOpenHashSet();
-        Arrays.stream(a.split("\\W+"))
-                .filter(tok -> tok.length() > 3)
-                .forEach(tok -> seen.add(tok.hashCode()));
-        int common = 0;
-        for (String w : b.split("\\W+"))
-            if (w.length() > 3 && seen.contains(w.hashCode()) && ++common >= 2) return true;
-        return false;
+    private static int[] buildSignature(IntOpenHashSet grams, BitSet noisy) {
+        int[] sig = new int[SIGNATURE_SIZE];
+        Arrays.fill(sig, Integer.MAX_VALUE);
+        IntIterator it = grams.iterator();
+        while (it.hasNext()) {
+            int g = it.nextInt();
+            if (noisy.get(g & HASH_MASK)) continue;
+            for (int i = 0; i < SIGNATURE_SIZE; i++) {
+                int h = mix(g, SEED[i]);
+                if (h < sig[i]) sig[i] = h;
+            }
+        }
+        return sig;
     }
 
     private static IntOpenHashSet collectTrigrams(String raw) {
@@ -158,20 +187,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         for (int i = 0; i <= bytes.length - 3; i++)
             set.add(MurmurHash3.hash32x86(bytes, i, 3, 0));
         return set;
-    }
-
-    private static int[] buildSignature(IntOpenHashSet grams) {
-        int[] sig = new int[SIGNATURE_SIZE];
-        Arrays.fill(sig, Integer.MAX_VALUE);
-        IntIterator it = grams.iterator();
-        while (it.hasNext()) {
-            int g = it.nextInt();
-            for (int i = 0; i < SIGNATURE_SIZE; i++) {
-                int h = mix(g, SEED[i]);
-                if (h < sig[i]) sig[i] = h;
-            }
-        }
-        return sig;
     }
 
     private static int mix(int x, int seed) {
@@ -197,13 +212,29 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             else j++;
         }
 
-        int dynMin = Math.max(MIN_NGRAM_OVERLAP, Math.min(a.len, b.len) / 6);
-        int minOverlap = Math.min(a.len, b.len) < VERY_SHORT_LEN ?
-                MIN_OVERLAP_VERY_SHORT : dynMin;
+        int base = Math.min(a.len, b.len);
+        int dynMin;
+        if (base <= 40) {
+            dynMin = MIN_NGRAM_OVERLAP;
+        } else {
+            dynMin = Math.max(MIN_NGRAM_OVERLAP, (int) Math.ceil(base / 4.0));
+        }
+
+
+        int minOverlap = Math.min(a.len, b.len) < VERY_SHORT_LEN ? MIN_OVERLAP_VERY_SHORT : dynMin;
         if (inter < minOverlap) return false;
 
         int union = a.ngrams.length + b.ngrams.length - inter;
         return inter >= thr * union;
+    }
+
+    private boolean wordOverlap(String a, String b) {
+        IntOpenHashSet seen = new IntOpenHashSet();
+        Arrays.stream(a.split("\\W+")).filter(t -> t.length() > 3).forEach(t -> seen.add(t.hashCode()));
+        int common = 0;
+        for (String w : b.split("\\W+"))
+            if (w.length() > 3 && seen.contains(w.hashCode()) && ++common >= 2) return true;
+        return false;
     }
 
     private double threshold(int lenA, int lenB, LshParams p) {
@@ -214,27 +245,25 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return p.thrShort() - k * (p.thrShort() - p.thrLong());
     }
 
-    /* ---------- calibration (unchanged) ---------- */
+    /* ---------- auto-калибровка LSH (не изменялась) ---------- */
 
     private void autocalibrate(List<String> rows) {
         int total = rows.size();
         if (total < 50) return;
 
-        int sampleSize = Math.min(300, Math.max(50, total / 10));
+        int sample = Math.min(300, Math.max(50, total / 10));
         Random rnd = new Random(123);
-        List<int[]> sigs = new ArrayList<>(sampleSize);
-        for (int i = 0; i < sampleSize; i++) {
-            String s = rows.get(rnd.nextInt(total));
-            sigs.add(buildSignature(collectTrigrams(s)));
-        }
+        List<int[]> sigs = new ArrayList<>(sample);
+        for (int i = 0; i < sample; i++)
+            sigs.add(buildSignature(collectTrigrams(rows.get(rnd.nextInt(total))), new BitSet(0)));
 
         int bestBand = 4;
-        double bestDelta = Double.MAX_VALUE;
+        double bestΔ = Double.MAX_VALUE;
         for (int cand : new int[]{4, 5, 6, 8}) {
             int bandCnt = SIGNATURE_SIZE / cand;
             long pairs = 0;
-            Map<Long, IntArrayList> tmp = new HashMap<>(sampleSize * bandCnt / 4);
-            for (int idx = 0; idx < sampleSize; idx++) {
+            Map<Long, IntArrayList> tmp = new HashMap<>(sample * bandCnt / 4);
+            for (int idx = 0; idx < sample; idx++) {
                 int[] sig = sigs.get(idx);
                 for (int b = 0; b < bandCnt; b++) {
                     long k = (((long) sig[b * cand]) << 32)
@@ -246,9 +275,10 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                 int m = l.size();
                 pairs += (long) m * (m - 1) / 2;
             }
-            double delta = Math.abs(pairs / (double) sampleSize - 0.4);
-            if (delta < bestDelta) {
-                bestDelta = delta;
+
+            double δ = Math.abs(pairs / (double) sample - 0.4);
+            if (δ < bestΔ) {
+                bestΔ = δ;
                 bestBand = cand;
             }
         }
@@ -261,7 +291,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         params.set(new LshParams(bestBand, SIGNATURE_SIZE / bestBand, sThr, lThr));
     }
 
-    /* ---------- data holder ---------- */
+    /* ---------- DTO ---------- */
 
     private static final class MinHashData {
         final int[] signature;
@@ -282,8 +312,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             if (arr.length == 0) return arr;
             Arrays.sort(arr);
             int w = 1;
-            for (int i = 1; i < arr.length; i++)
-                if (arr[i] != arr[w - 1]) arr[w++] = arr[i];
+            for (int i = 1; i < arr.length; i++) if (arr[i] != arr[w - 1]) arr[w++] = arr[i];
             return Arrays.copyOf(arr, w);
         }
     }
