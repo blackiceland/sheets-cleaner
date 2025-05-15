@@ -23,23 +23,25 @@ import java.util.stream.Collectors;
 @Service
 public class RowNormalizerServiceImpl implements RowNormalizerService {
 
-    /* ── regexp & const ─────────────────────────────────────────────── */
+    /* ──────────────── RegExp & const ─────────────────────────────── */
 
-    private static final Pattern WHITESPACE          = Pattern.compile("\\s+");
-    private static final Pattern PUNCT_KEEP_SELECTED = Pattern.compile("\\p{Punct}&&[^@._/#&-]+");
-    private static final Pattern NON_ASCII           = Pattern.compile("[^\\p{IsAlphabetic}\\d\\s@._/#&-]");
-    private static final Pattern GMAIL_PLUS          = Pattern.compile("\\+[^@]+$");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    private static final Pattern PUNCT_KEEP_SELECTED = Pattern.compile("\\p{Punct}&&[^@._/#&+\\-]+");
+    private static final Pattern NON_ASCII = Pattern.compile("[^\\p{IsAlphabetic}\\d\\s@._/#&+\\-]");
+    private static final Pattern GMAIL_PLUS = Pattern.compile("\\+[^@]+$");
 
-    private static final Pattern URL_PROTOCOL   = Pattern.compile("^(https?://)?(www\\.)?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_PROTOCOL = Pattern.compile("^(https?://)?(www\\.)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern URL_TRAIL_SLASH = Pattern.compile("/+$");
-    private static final Pattern URL_PATTERN     = Pattern.compile("^[a-z][a-z0-9+.-]*://.*|\\w+\\.\\w+.*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_PATTERN = Pattern.compile(
+            "^[a-z][a-z0-9+.-]*://.*|\\w+\\.\\w+.*", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern FRACTION_ONE_HALF = Pattern.compile("^(½|1/2|50 ?%)$");
+    private static final Pattern PHONE_DIGITS = Pattern.compile("\\D");
 
-    /* ── date formatters ────────────────────────────────────────────── */
+    /* ──────────────── Date formatters ────────────────────────────── */
 
-    private static final DateTimeFormatter ISO_DATE      = DateTimeFormatter.ISO_LOCAL_DATE;
-    private static final DateTimeFormatter ISO_DATETIME  = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final DateTimeFormatter ISO_DATETIME = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     private static final List<DateTimeFormatter> DATE_FMT = List.of(
             DateTimeFormatter.ofPattern("dd.MM.yy"),
@@ -47,19 +49,20 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
             DateTimeFormatter.ofPattern("MM-dd-yyyy"),
             DateTimeFormatter.ofPattern("MM/dd/yyyy"),
             DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH),
-            DateTimeFormatter.ofPattern("d MMM yyyy",  Locale.ENGLISH),
+            DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH),
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm[:ss]"),
             DateTimeFormatter.ISO_LOCAL_DATE_TIME,
             DateTimeFormatter.ofPattern("d-MMM-yy", new Locale("ru"))
     );
 
-    /* ── misc ───────────────────────────────────────────────────────── */
+    /* ──────────────── misc ──────────────────────────────────────── */
 
     private static final int PARALLEL_THRESHOLD = 10_000;
 
     private static final EmailValidator EMAIL_VALIDATOR = EmailValidator.getInstance(false, false);
     private static final Set<String> TAGGABLE_DOMAINS = Set.of(
-            "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "yandex.ru", "fastmail.com"
+            "gmail.com", "googlemail.com", "outlook.com",
+            "hotmail.com", "yandex.ru", "fastmail.com"
     );
 
     private static final ThreadLocal<Transliterator> LATIN = ThreadLocal.withInitial(
@@ -68,7 +71,7 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     private final PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
 
-    /* ── public API ─────────────────────────────────────────────────── */
+    /* ──────────────── public API ─────────────────────────────────── */
 
     @Override
     public List<String> normalizeRows(List<List<String>> rows) {
@@ -80,7 +83,7 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
                 .toList();
     }
 
-    /* ── helpers ────────────────────────────────────────────────────── */
+    /* ──────────────── helpers ───────────────────────────────────── */
 
     private String normalizeRow(List<String> cells) {
         if (cells == null || cells.isEmpty()) return "";
@@ -99,21 +102,21 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
                 .trim();
         if (text.isEmpty()) return "";
 
-        if (isEmail(text))         return normalizeEmail(text);
-        if (isUrl(text))           return normalizeUrl(text);
+        if (isEmail(text)) return normalizeEmail(text);
+        if (isUrl(text)) return normalizeUrl(text);
 
         String date = tryNormalizeDate(text);
-        if (date != null)          return date;
+        if (date != null) return date;
 
         String phone = tryNormalizePhone(text);
-        if (phone != null)         return phone;
+        if (phone != null) return phone;
 
-        if (isFraction(text))      return "0.5";
+        if (isFraction(text)) return "0.5";
 
         return normalizeText(text);
     }
 
-    /* ── plain text ─────────────────────────────────────────────────── */
+    /* ──────────────── plain text ────────────────────────────────── */
 
     private String normalizeText(String text) {
         text = LATIN.get().transliterate(text);
@@ -123,21 +126,24 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
         return text.trim();
     }
 
-    /* ── email ──────────────────────────────────────────────────────── */
+    /* ──────────────── email ─────────────────────────────────────── */
 
     private boolean isEmail(String v) {
         int at = v.lastIndexOf('@');
         if (at <= 0 || at == v.length() - 1) return false;
         String local = v.substring(0, at);
         String domain;
-        try { domain = IDN.toASCII(v.substring(at + 1)); }
-        catch (IllegalArgumentException ex) { return false; }
+        try {
+            domain = IDN.toASCII(v.substring(at + 1));
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
         return EMAIL_VALIDATOR.isValid(local + '@' + domain);
     }
 
     private String normalizeEmail(String email) {
         int at = email.lastIndexOf('@');
-        String local  = email.substring(0, at);
+        String local = email.substring(0, at);
         String domain = IDN.toASCII(email.substring(at + 1).toLowerCase(Locale.ROOT));
         if ("googlemail.com".equals(domain)) domain = "gmail.com";
         if (TAGGABLE_DOMAINS.contains(domain)) {
@@ -147,11 +153,15 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
         return local + '@' + domain;
     }
 
-    /* ── url ────────────────────────────────────────────────────────── */
+    /* ──────────────── url ───────────────────────────────────────── */
 
-    private boolean isUrl(String v) { return URL_PATTERN.matcher(v).matches(); }
+    private boolean isUrl(String v) {
+        return URL_PATTERN.matcher(v).matches();
+    }
 
-    /** домен (+порт) и первые два сегмента пути, query/anchor отбрасываем */
+    /**
+     * домен (+порт) и первые два сегмента пути, query/anchor отбрасываем
+     */
     private String normalizeUrl(String url) {
         url = URL_PROTOCOL.matcher(url).replaceFirst("");
 
@@ -163,48 +173,67 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
         url = URL_TRAIL_SLASH.matcher(url).replaceAll("");
 
         int slash = url.indexOf('/');
-        if (slash < 0) return url;
+        if (slash < 0) return url;                       // только домен
 
-        String domain = url.substring(0, slash);              // домен и порт сохранены
+        String domain = url.substring(0, slash);         // домен + :порт
         String[] parts = url.substring(slash + 1).split("/");
-        String path = switch (parts.length) {
-            case 0 -> "";
-            case 1 -> "/" + parts[0];
-            default -> "/" + parts[0] + '/' + parts[1];
-        };
-        return domain + path;
+
+        if (parts.length == 0) return domain;
+        if (parts.length == 1) return domain + '/' + parts[0];
+
+        return domain + '/' + parts[0] + '/' + parts[1];
     }
 
+    /* ──────────────── phone ─────────────────────────────────────── */
+
+    /**
+     * * &lt; 10 цифр → «не телефон»
+     * * `parse` + `isValidNumber` → форматируем в E.164
+     * * при ошибке **ничего не меняем** – строка остаётся обычным текстом
+     */
     private String tryNormalizePhone(String v) {
-        String digits = v.replaceAll("\\D", "");
-        if (digits.length() < 7) return null;                  // коротыш — не телефон
 
+        // 1) удаляем префикс tel:
+        String raw = v.startsWith("tel:") ? v.substring(4) : v;
+
+        // 2) первичная фильтрация по длине
+        String digits = PHONE_DIGITS.matcher(raw).replaceAll("");
+        if (digits.length() < 10) return null;
+
+        // 3) libphonenumber
         try {
-            var num = phoneUtil.parse(v, "");                  // auto-region
-            if (phoneUtil.isValidNumber(num))
+            var num = phoneUtil.parse(raw, "");          // auto-region; требует + или 00
+            if (phoneUtil.isValidNumber(num)) {
                 return phoneUtil.format(num, PhoneNumberUtil.PhoneNumberFormat.E164);
-        } catch (NumberParseException ignored) { }
-
-        // fallback: вернуть оригинал, если явно междунар. формат; иначе null
-        return (v.startsWith("+") || v.startsWith("00")) ? v : null;
+            }
+        } catch (NumberParseException ignored) {
+            // fall through – будем трактовать как обычный текст
+        }
+        return null;
     }
+
+    /* ──────────────── date ──────────────────────────────────────── */
 
     private String tryNormalizeDate(String v) {
         for (DateTimeFormatter fmt : DATE_FMT) {
-            try {                                   // пробуем как дата-время
+            try {                               // дата-время
                 LocalDateTime dt = LocalDateTime.parse(v, fmt);
                 return dt.format(ISO_DATETIME);
             } catch (DateTimeParseException ignored1) {
-                try {                               // пробуем как «только дата»
+                try {                           // только дата
                     LocalDate d = LocalDate.parse(v, fmt);
                     return d.format(ISO_DATE);
                 } catch (DateTimeParseException ignored2) {
-                    // continue
+                    // try next pattern
                 }
             }
         }
         return null;
     }
 
-    private boolean isFraction(String v) { return FRACTION_ONE_HALF.matcher(v).matches(); }
+    /* ──────────────── misc ─────────────────────────────────────── */
+
+    private boolean isFraction(String v) {
+        return FRACTION_ONE_HALF.matcher(v).matches();
+    }
 }
