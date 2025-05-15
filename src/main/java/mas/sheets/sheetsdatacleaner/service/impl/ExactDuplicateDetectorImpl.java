@@ -19,6 +19,8 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
     private static final Pattern PIPE = Pattern.compile("\\s*\\|\\s*");
     private static final Pattern NON_ALNUM = Pattern.compile("[^\\p{Alnum}]");
 
+    private static final int EMPTY_HASH = 0x9E3779B9;
+
     private static final String CANON_SEP = "\u0001";
 
     @Override
@@ -51,8 +53,9 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
             canonicalKey[i] = String.join(CANON_SEP, tokens);
 
             String alnum = NON_ALNUM.matcher(row).replaceAll("");
+
             alnumHash[i] = alnum.isEmpty()
-                    ? 0
+                    ? EMPTY_HASH
                     : MurmurHash3.hash32x86(alnum.getBytes(StandardCharsets.UTF_8));
         });
 

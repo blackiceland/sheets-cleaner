@@ -102,11 +102,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 }
             }
         }
+
         log.info("PIPELINE-2.1: confirmedPairs={} DATA={}",
                 confirmed.size(),
                 confirmed.stream()
-                        .map(p -> Map.of("left", normalized.get(p.first()),
-                                "right", normalized.get(p.second())))
+                        .map(p -> Map.of(
+                                "idx1", p.first(),
+                                "idx2", p.second(),
+                                "left",  request.rows().get(p.first()),
+                                "right", request.rows().get(p.second())))
                         .toList());
 
         if (exact.remainingRows().isEmpty()) {
@@ -119,10 +123,14 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         List<Integer> restIdx = exact.originalIndexes();
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
+
         log.info("PIPELINE-3: candidates={} DATA={}",
                 pairs.size(),
                 pairs.stream()
-                        .map(p -> Map.of("left", restRows.get(p.first()),
+                        .map(p -> Map.of(
+                                "idx1", restIdx.get(p.first()),
+                                "idx2", restIdx.get(p.second()),
+                                "left",  restRows.get(p.first()),
                                 "right", restRows.get(p.second())))
                         .toList());
 
@@ -171,11 +179,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         log.info("PIPELINE-3.X: hardRejected={} fastConfirmed={} toNeural={}",
                 hardRejected.get(), fastConfirmed.get(), toNeuralCnt.get());
+
         log.info("PIPELINE-3.X: toNeuralDATA={}",
                 toNeural.stream()
-                        .map(e -> Map.of("left", restRows.get(e.pair().first()),
-                                "right", restRows.get(e.pair().second()),
-                                "score", e.weightedScore))
+                        .map(e -> Map.of(
+                                "idx1", restIdx.get(e.pair().first()),
+                                "idx2", restIdx.get(e.pair().second()),
+                                "score", e.weightedScore,
+                                "left",  restRows.get(e.pair().first()),
+                                "right", restRows.get(e.pair().second())))
                         .toList());
 
         /* ── 4. Нейросеть ──────────────────────────────────────────────── */
@@ -196,7 +208,10 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             log.info("PIPELINE-4: neuralConfirmed={} DATA={}",
                     neuralConfirmed.get(),
                     probable.stream()
-                            .map(p -> Map.of("left", request.rows().get(p.first()),
+                            .map(p -> Map.of(
+                                    "idx1", p.first(),
+                                    "idx2", p.second(),
+                                    "left",  request.rows().get(p.first()),
                                     "right", request.rows().get(p.second())))
                             .toList());
         }

@@ -7,10 +7,8 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
-import org.apache.commons.codec.digest.MurmurHash3;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -181,12 +179,27 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
     }
 
     private static IntOpenHashSet collectTrigrams(String raw) {
-        String s = ' ' + raw.replace('|', ' ') + ' ';
-        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
-        IntOpenHashSet set = new IntOpenHashSet(bytes.length);
-        for (int i = 0; i <= bytes.length - 3; i++)
-            set.add(MurmurHash3.hash32x86(bytes, i, 3, 0));
+        String s = " " + raw.replace('|', ' ') + " ";
+        int[] cps = s.codePoints().toArray();
+        IntOpenHashSet set = new IntOpenHashSet(cps.length);
+
+        for (int i = 0; i <= cps.length - 3; i++) {
+            int h = mix3(cps[i], cps[i + 1], cps[i + 2]);
+            set.add(h);
+        }
         return set;
+    }
+
+    private static int mix3(int a, int b, int c) {
+        int h = a;
+        h = 31 * h + b;
+        h = 31 * h + c;
+        h ^= h >>> 16;
+        h *= 0x7feb352d;
+        h ^= h >>> 15;
+        h *= 0x846ca68b;
+        h ^= h >>> 16;
+        return h;
     }
 
     private static int mix(int x, int seed) {
