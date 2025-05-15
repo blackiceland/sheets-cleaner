@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
@@ -26,29 +27,29 @@ import java.util.stream.Collectors;
 @Slf4j
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
-    /* ── новые пороги: согласованные и адаптивные ───────────────────── */
+    /* ── пороги (остаются без изменений) ───────────────────────────────── */
 
-    private static final double HARD_REJECT_THRESHOLD = 0.25;   // как было
-    private static final double FAST_REJECT_THRESHOLD = 0.35;   // ↑
-    private static final double FAST_CONFIRM_LONG = 0.55;   // ↓
-    private static final double FAST_CONFIRM_SHORT = 0.70;   // ↑
+    private static final double HARD_REJECT_THRESHOLD = 0.25;
+    private static final double FAST_REJECT_THRESHOLD = 0.35;
+    private static final double FAST_CONFIRM_LONG = 0.55;
+    private static final double FAST_CONFIRM_SHORT = 0.70;
     private static final int SHORT_LEN_LIMIT = 30;
 
-    private static final double NEURAL_CONFIRM_THRESHOLD = 0.78; // пока без изменений
+    private static final double NEURAL_CONFIRM_THRESHOLD = 0.78;
 
-    /* ── веса скореров ──────────────────────────────────────────────── */
+    /* ── веса эвристических скореров ──────────────────────────────────── */
 
     private static final double TOKEN_WEIGHT = 0.60;
     private static final double LEV_WEIGHT = 0.25;
     private static final double JW_WEIGHT = 0.10;
 
-    /* ── параллельность / batch size ────────────────────────────────── */
+    /* ── параллельность ───────────────────────────────────────────────── */
 
     private static final int NEURAL_BATCH_SIZE = 50;
     private static final int CORE = Runtime.getRuntime().availableProcessors();
     private static final int MAX_IN_FLIGHT = 4_000;
 
-    /* ── зависимости ────────────────────────────────────────────────── */
+    /* ── зависимости ─────────────────────────────────────────────────── */
 
     private final ExactDuplicateDetector exactDetector;
     private final MinHashCandidateDetectionService candidateGenerator;
@@ -86,9 +87,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         neuralPool.shutdown();
     }
 
-    /* ====================================================================== */
-    /*                             PIPELINE                                   */
-    /* ====================================================================== */
+    /* =================================================================== */
+    /*                           PIPELINE                                  */
+    /* =================================================================== */
 
     @Override
     @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
@@ -96,40 +97,54 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         log.info("PIPELINE-START: rows={} RAW={}", request.rows().size(), request.rows());
 
-        /* 1️⃣  Нормализация ------------------------------------------------- */
+        /* 1️⃣  нормализация ------------------------------------------------ */
         List<String> normalized = normalizer.normalizeRows(request.rows());
         log.info("PIPELINE-1: normalized={} DATA={}", normalized.size(), normalized);
 
-        /* 2️⃣  Точные дубликаты -------------------------------------------- */
+        /* 2️⃣  точные дубликаты ------------------------------------------- */
         var exact = exactDetector.detect(normalized);
-        log.info("PIPELINE-2: exactGroups={} remainingRows={}",
-                exact.duplicateGroups().size(), exact.remainingRows().size());
+        log.info("PIPELINE-2: exactGroups={} remainingRows={} exactGroupsDetailed={}",
+                exact.duplicateGroups().size(),
+                exact.remainingRows().size(),
+                exact.duplicateGroups().stream()
+                        .map(gr -> gr.stream().map(normalized::get).toList())
+                        .toList());
 
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
         Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
 
-        for (List<Integer> g : exact.duplicateGroups()) {
+        for (List<Integer> g : exact.duplicateGroups())
             for (int i = 0; i < g.size(); i++)
                 for (int j = i + 1; j < g.size(); j++)
                     confirmed.add(IndexPair.of(g.get(i), g.get(j)));
-        }
+
+        log.info("PIPELINE-2.1: confirmedPairs={}", confirmed.size());
 
         if (exact.remainingRows().isEmpty()) {
             log.info("PIPELINE-END: onlyExact=true");
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
-        /* 3️⃣  MinHash-кандидаты ------------------------------------------- */
+        /* 3️⃣  генерация MinHash кандидатов ------------------------------- */
         List<String> restRows = exact.remainingRows();
         List<Integer> restIdx = exact.originalIndexes();
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
+
+        log.info("PIPELINE-3: candidates={} DATA={}", pairs.size(),
+                pairs.stream()
+                        .map(p -> Map.of("idx1", restIdx.get(p.first()),
+                                "idx2", restIdx.get(p.second()),
+                                "left", restRows.get(p.first()),
+                                "right", restRows.get(p.second())))
+                        .toList());
+
         if (pairs.isEmpty()) {
             log.info("PIPELINE-END: noCandidates=true");
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
-        /* 3.1  Эвристический скоринг --------------------------------------- */
+        /* 3.1  эвристический скоринг ------------------------------------- */
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(pairs.size());
         AtomicInteger hardRejected = new AtomicInteger();
@@ -149,21 +164,20 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                             ? FAST_CONFIRM_SHORT
                             : FAST_CONFIRM_LONG;
 
-                    if (ev.weightedScore >= confirmThr) {                // fast-confirm
+                    if (ev.weightedScore >= confirmThr) {
                         probable.add(mapOriginal(p, restIdx));
                         fastConfirmed.incrementAndGet();
                     } else if (ev.weightedScore > FAST_REJECT_THRESHOLD) {
-                        toNeural.add(ev);                                // серая зона
+                        toNeural.add(ev);
                     }
                 } finally {
                     latch.countDown();
                 }
             };
-            // «caller-runs», если очередь забилась
             try {
                 workers.execute(job);
             } catch (RejectedExecutionException ex) {
-                job.run();
+                job.run();                      // caller-runs fallback
             }
         }
 
@@ -173,21 +187,30 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             Thread.currentThread().interrupt();
         }
 
-        /* 4️⃣  Нейросеть ---------------------------------------------------- */
+        log.info("PIPELINE-3.X: hardRejected={} fastConfirmed={} toNeural={} toNeuralDATA={}",
+                hardRejected.get(), fastConfirmed.get(), toNeural.size(),
+                toNeural.stream()
+                        .map(e -> Map.of("idx1", restIdx.get(e.pair.first()),
+                                "idx2", restIdx.get(e.pair.second()),
+                                "score", String.format(Locale.ROOT, "%.3f", e.weightedScore),
+                                "left", restRows.get(e.pair.first()),
+                                "right", restRows.get(e.pair.second())))
+                        .toList());
+
+        /* 4️⃣  нейросеть --------------------------------------------------- */
         if (!toNeural.isEmpty()) runNeuralStage(toNeural, restRows, restIdx, probable);
 
+        /* 5️⃣  финал ------------------------------------------------------- */
         log.info("PIPELINE-END: confirmedTotal={} probableTotal={}",
                 confirmed.size(), probable.size());
+
         return new DuplicateMatchResponse(confirmed, probable);
     }
 
-    /* ====================================================================== */
-    /*                          PRIVATE HELPERS                               */
-    /* ====================================================================== */
+    /* =================================================================== */
+    /*                        PRIVATE HELPERS                              */
+    /* =================================================================== */
 
-    /**
-     * рассчитываем три эвристических скора и возвращаем агрегаты
-     */
     private PairEval evaluatePair(IndexPair pair, List<String> rows) {
 
         String left = rows.get(pair.first());
@@ -206,9 +229,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return new PairEval(pair, weighted, maxLen);
     }
 
-    /**
-     * запускает батчи в нейросеть и дополняет probable-множество
-     */
     private void runNeuralStage(List<PairEval> batchList,
                                 List<String> rows,
                                 List<Integer> originalIdx,
@@ -247,11 +267,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return IndexPair.of(idx.get(p.first()), idx.get(p.second()));
     }
 
-    /* ====================================================================== */
-
-    /**
-     * минимальный DTO внутри сервиса
-     */
+    /* DTO внутри сервиса */
     private record PairEval(IndexPair pair, double weightedScore, int maxLen) {
     }
 }
