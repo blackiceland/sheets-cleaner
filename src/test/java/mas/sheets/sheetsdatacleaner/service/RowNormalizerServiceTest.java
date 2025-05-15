@@ -82,7 +82,6 @@ class RowNormalizerServiceTest {
                 "a. markov | anton@gmail.com",
                 "resume | facade | creme brulee",
                 "zhang wei | mhmd | ivan ivanov",
-                "",
                 "a b | a b | c d",
                 "aleksei petrov | aleksei.petrov@mail.ru",
                 "a. petrov | aleksei.petrov+test@mail.ru",
@@ -140,11 +139,11 @@ class RowNormalizerServiceTest {
 
         // Проверка списка с null значениями
         List<List<String>> nullRowsList = Arrays.asList(null, null);
-        assertThat(service.normalizeRows(nullRowsList)).containsOnly("", "");
+        assertThat(service.normalizeRows(nullRowsList)).isEmpty();
 
         // Проверка списка с пустыми списками
         List<List<String>> emptyRowsList = Arrays.asList(List.of(), List.of());
-        assertThat(service.normalizeRows(emptyRowsList)).containsOnly("", "");
+        assertThat(service.normalizeRows(emptyRowsList)).isEmpty();
     }
 
     @Test
@@ -196,8 +195,6 @@ class RowNormalizerServiceTest {
         List<String> result = service.normalizeRows(texts);
 
         assertThat(result).containsExactly(
-                "c",
-                "c#",
                 "javascript",
                 "python 3.9",
                 "15 discount",

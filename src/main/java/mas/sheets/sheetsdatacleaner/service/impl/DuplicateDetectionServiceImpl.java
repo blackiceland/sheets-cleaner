@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
-    private static final double HARD_REJECT_THRESHOLD = 0.25;
+    private static final double HARD_REJECT_THRESHOLD = 0.35;
     private static final double FAST_REJECT_THRESHOLD = 0.30;
     private static final double FAST_CONFIRM_THRESHOLD = 0.55;
     private static final double NEURAL_CONFIRM_THRESHOLD = 0.70;
@@ -76,51 +76,66 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     @Override
     @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
-        log.info("PIPELINE-START: Получено {} строк для анализа", request.rows().size());
 
-        // ── 1. Normalise входные строки ───────────────────────────────
+        /* ── 0. Исходные данные ─────────────────────────────────────────── */
+        log.info("PIPELINE-START: rows={} RAW={}", request.rows().size(), request.rows());
+
+        /* ── 1. Нормализация ────────────────────────────────────────────── */
         List<String> normalized = normalizer.normalizeRows(request.rows());
-        log.info("PIPELINE-1: Нормализовано {} строк", normalized.size());
+        log.info("PIPELINE-1: normalized={} DATA={}", normalized.size(), normalized);
 
-        // ── 2. Точное совпадение (hash-группы) ─────────────────────────
+        /* ── 2. Точные дубликаты ────────────────────────────────────────── */
         var exact = exactDetector.detect(normalized);
-        log.info("PIPELINE-2: Найдено {} групп точных дубликатов, осталось {} строк для дальнейшего анализа",
-                exact.duplicateGroups().size(), exact.remainingRows().size());
+        log.info("PIPELINE-2: exactGroups={} remainingRows={}", exact.duplicateGroups().size(), exact.remainingRows().size());
+        log.info("PIPELINE-2: exactGroupsDetailed={}",
+                exact.duplicateGroups().stream()
+                        .map(gr -> gr.stream().map(normalized::get).toList())
+                        .toList());
 
-        Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();  // 100 % дубликаты
-        Set<IndexPair> probable = ConcurrentHashMap.newKeySet();  // "похоже, дубликаты"
+        Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
+        Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
 
         for (List<Integer> g : exact.duplicateGroups()) {
-            for (int i = 0; i < g.size(); i++)
-                for (int j = i + 1; j < g.size(); j++)
+            for (int i = 0; i < g.size(); i++) {
+                for (int j = i + 1; j < g.size(); j++) {
                     confirmed.add(IndexPair.of(g.get(i), g.get(j)));
+                }
+            }
         }
-        log.info("PIPELINE-2.1: Добавлено {} пар точных дубликатов", confirmed.size());
+        log.info("PIPELINE-2.1: confirmedPairs={} DATA={}",
+                confirmed.size(),
+                confirmed.stream()
+                        .map(p -> Map.of("left", normalized.get(p.first()),
+                                "right", normalized.get(p.second())))
+                        .toList());
 
         if (exact.remainingRows().isEmpty()) {
-            log.info("PIPELINE-END: Только точные дубликаты, завершаем обработку");
+            log.info("PIPELINE-END: onlyExact=true");
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
-        // ── 3. Кандидаты MinHash + эвристика ──────────────────────────
+        /* ── 3. Кандидаты MinHash ───────────────────────────────────────── */
         List<String> restRows = exact.remainingRows();
         List<Integer> restIdx = exact.originalIndexes();
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
-        log.info("PIPELINE-3: MinHash сгенерировал {} пар кандидатов", pairs.size());
+        log.info("PIPELINE-3: candidates={} DATA={}",
+                pairs.size(),
+                pairs.stream()
+                        .map(p -> Map.of("left", restRows.get(p.first()),
+                                "right", restRows.get(p.second())))
+                        .toList());
 
         if (pairs.isEmpty()) {
-            log.info("PIPELINE-END: Нет кандидатов от MinHash, завершаем обработку");
+            log.info("PIPELINE-END: noCandidates=true");
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(pairs.size());
-
-        // Счетчики для логирования
-        AtomicInteger hardRejected = new AtomicInteger(0);
-        AtomicInteger fastConfirmed = new AtomicInteger(0);
-        AtomicInteger toNeuralCount = new AtomicInteger(0);
+        AtomicInteger hardRejected = new AtomicInteger();
+        AtomicInteger fastConfirmed = new AtomicInteger();
+        AtomicInteger toNeuralCnt = new AtomicInteger();
 
         for (IndexPair p : pairs) {
             Runnable task = () -> {
@@ -135,18 +150,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                         fastConfirmed.incrementAndGet();
                     } else if (e.weightedScore > FAST_REJECT_THRESHOLD) {
                         toNeural.add(e);
-                        toNeuralCount.incrementAndGet();
+                        toNeuralCnt.incrementAndGet();
                     }
                 } finally {
                     latch.countDown();
                 }
             };
-
-            // ❶  При переполнении очереди – выполняем прямо в текущем потоке
             try {
                 workers.execute(task);
             } catch (RejectedExecutionException ex) {
-                task.run();                 // Caller-runs fallback
+                task.run();                                  // caller-runs
             }
         }
 
@@ -156,47 +169,44 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             Thread.currentThread().interrupt();
         }
 
-        log.info("PIPELINE-3.1: Жёстко отклонено {} пар (score <= {})",
-                hardRejected.get(), HARD_REJECT_THRESHOLD);
-        log.info("PIPELINE-3.2: Быстро подтверждено {} пар (score >= {})",
-                fastConfirmed.get(), FAST_CONFIRM_THRESHOLD);
-        log.info("PIPELINE-3.3: Отправлено в нейросеть {} пар ({} < score < {})",
-                toNeuralCount.get(), FAST_REJECT_THRESHOLD, FAST_CONFIRM_THRESHOLD);
+        log.info("PIPELINE-3.X: hardRejected={} fastConfirmed={} toNeural={}",
+                hardRejected.get(), fastConfirmed.get(), toNeuralCnt.get());
+        log.info("PIPELINE-3.X: toNeuralDATA={}",
+                toNeural.stream()
+                        .map(e -> Map.of("left", restRows.get(e.pair().first()),
+                                "right", restRows.get(e.pair().second()),
+                                "score", e.weightedScore))
+                        .toList());
 
-        // ── 4. До-оценка нейросетью "трудных" пар ──────────────────────
-        AtomicInteger neuralConfirmed = new AtomicInteger(0);
+        /* ── 4. Нейросеть ──────────────────────────────────────────────── */
+        AtomicInteger neuralConfirmed = new AtomicInteger();
 
         if (!toNeural.isEmpty()) {
-            log.info("PIPELINE-4: Запуск обработки {} пар через нейросеть", toNeural.size());
-
             for (int i = 0; i < toNeural.size(); i += NEURAL_BATCH_SIZE) {
                 int to = Math.min(i + NEURAL_BATCH_SIZE, toNeural.size());
                 List<PairEval> batch = toNeural.subList(i, to);
 
-                log.debug("PIPELINE-4.1: Обработка батча {}-{} из {}", i, to, toNeural.size());
-
-                // Создаем обертку для подсчета подтвержденных
-                Runnable countingProcessor = () -> {
-                    int sizeBefore = probable.size();
+                Runnable proc = () -> {
+                    int before = probable.size();
                     processBatch(batch, restRows, restIdx, probable);
-                    int added = probable.size() - sizeBefore;
-                    neuralConfirmed.addAndGet(added);
+                    neuralConfirmed.addAndGet(probable.size() - before);
                 };
-
-                CompletableFuture
-                        .runAsync(countingProcessor, neuralPool)
-                        .join();     // ждём, чтобы сохранить детерминизм результата
+                CompletableFuture.runAsync(proc, neuralPool).join();
             }
-
-            log.info("PIPELINE-4.2: Нейросеть подтвердила {} пар", neuralConfirmed.get());
+            log.info("PIPELINE-4: neuralConfirmed={} DATA={}",
+                    neuralConfirmed.get(),
+                    probable.stream()
+                            .map(p -> Map.of("left", request.rows().get(p.first()),
+                                    "right", request.rows().get(p.second())))
+                            .toList());
         }
 
-        // ── 5. Итог ────────────────────────────────────────────────────
-        log.info("PIPELINE-END: Найдено всего {} точных и {} вероятных дубликатов",
+        /* ── 5. Итог ───────────────────────────────────────────────────── */
+        log.info("PIPELINE-END: confirmedTotal={} probableTotal={}",
                 confirmed.size(), probable.size());
+
         return new DuplicateMatchResponse(confirmed, probable);
     }
-
 
     private PairEval evaluatePair(IndexPair pair, List<String> rows) {
         String left = rows.get(pair.first());
