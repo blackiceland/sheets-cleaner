@@ -16,12 +16,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 @Slf4j
@@ -94,21 +94,34 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     @Override
     @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
-
-        log.info("PIPELINE-START: rows={} RAW={}", request.rows().size(), request.rows());
+        log.info(
+                "PIPELINE-START: rows={}\nROWS:\n{}",
+                request.rows().size(),
+                IntStream.range(0, request.rows().size())
+                        .mapToObj(i -> i + ": " + String.join(" | ", request.rows().get(i)))
+                        .collect(Collectors.joining(System.lineSeparator()))
+        );
 
         /* 1️⃣  нормализация ------------------------------------------------ */
         List<String> normalized = normalizer.normalizeRows(request.rows());
-        log.info("PIPELINE-1: normalized={} DATA={}", normalized.size(), normalized);
+
+        log.info("PIPELINE-1: normalized={}\nnormalized-DATA:\n{}",
+                normalized.size(),
+                String.join(System.lineSeparator(), normalized));
 
         /* 2️⃣  точные дубликаты ------------------------------------------- */
-        var exact = exactDetector.detect(normalized);
-        log.info("PIPELINE-2: exactGroups={} remainingRows={} exactGroupsDetailed={}",
+        ExactDuplicateDetectorImpl.ExactDetectionResult exact = exactDetector.detect(normalized);
+
+        log.info(
+                "PIPELINE-2: exactGroups={} remainingRows={}\nGroups:\n{}",
                 exact.duplicateGroups().size(),
                 exact.remainingRows().size(),
-                exact.duplicateGroups().stream()
-                        .map(gr -> gr.stream().map(normalized::get).toList())
-                        .toList());
+                exact.duplicateGroups().stream()                  // каждая группа → отдельная строка
+                        .map(gr -> gr.stream()                       // элементы группы: индекс + строка
+                                .map(i -> String.format("[%d] %s", i, normalized.get(i)))
+                                .collect(Collectors.joining(", ")))  // «, » явно отделяет записи
+                        .collect(Collectors.joining(System.lineSeparator()))
+        );
 
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
         Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
@@ -131,13 +144,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
 
-        log.info("PIPELINE-3: candidates={} DATA={}", pairs.size(),
+        log.info(
+                "PIPELINE-3: candidates={}\nPairs:\n{}",
+                pairs.size(),
                 pairs.stream()
-                        .map(p -> Map.of("idx1", restIdx.get(p.first()),
-                                "idx2", restIdx.get(p.second()),
-                                "left", restRows.get(p.first()),
-                                "right", restRows.get(p.second())))
-                        .toList());
+                        .map(p -> String.format(
+                                "[%d] %s  <->  [%d] %s",
+                                restIdx.get(p.first()),  restRows.get(p.first()),
+                                restIdx.get(p.second()), restRows.get(p.second())))
+                        .collect(Collectors.joining(System.lineSeparator()))
+        );
 
         if (pairs.isEmpty()) {
             log.info("PIPELINE-END: noCandidates=true");
@@ -187,15 +203,12 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             Thread.currentThread().interrupt();
         }
 
-        log.info("PIPELINE-3.X: hardRejected={} fastConfirmed={} toNeural={} toNeuralDATA={}",
-                hardRejected.get(), fastConfirmed.get(), toNeural.size(),
-                toNeural.stream()
-                        .map(e -> Map.of("idx1", restIdx.get(e.pair.first()),
-                                "idx2", restIdx.get(e.pair.second()),
-                                "score", String.format(Locale.ROOT, "%.3f", e.weightedScore),
-                                "left", restRows.get(e.pair.first()),
-                                "right", restRows.get(e.pair.second())))
-                        .toList());
+        log.info(
+                "PIPELINE-3.X: hardRejected={}  fastConfirmed={}  toNeural={}",
+                hardRejected.get(), fastConfirmed.get(), toNeural.size()
+        );
+
+
 
         /* 4️⃣  нейросеть --------------------------------------------------- */
         if (!toNeural.isEmpty()) runNeuralStage(toNeural, restRows, restIdx, probable);
