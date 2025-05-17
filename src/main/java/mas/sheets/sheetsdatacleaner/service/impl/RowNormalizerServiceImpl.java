@@ -3,6 +3,7 @@ package mas.sheets.sheetsdatacleaner.service.impl;
 import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.ibm.icu.text.Transliterator;
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
 import mas.sheets.sheetsdatacleaner.service.RowNormalizerService;
 import org.apache.commons.validator.routines.EmailValidator;
 import org.springframework.stereotype.Service;
@@ -13,12 +14,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 public class RowNormalizerServiceImpl implements RowNormalizerService {
@@ -42,6 +41,7 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final DateTimeFormatter ISO_DATETIME = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
 
     private static final List<DateTimeFormatter> DATE_FMT = List.of(
             DateTimeFormatter.ofPattern("dd.MM.yy"),
@@ -74,12 +74,21 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
     /* ──────────────── public API ─────────────────────────────────── */
 
     @Override
-    public List<String> normalizeRows(List<List<String>> rows) {
+    public List<RowNorm> normalizeRows(List<List<String>> rows) {
         if (rows == null || rows.isEmpty()) return Collections.emptyList();
 
-        return (rows.size() > PARALLEL_THRESHOLD ? rows.parallelStream() : rows.stream())
-                .map(this::normalizeRow)
-                .filter(s -> !s.isBlank() && s.length() >= 3)
+        IntStream rng = rows.size() > PARALLEL_THRESHOLD
+                ? IntStream.range(0, rows.size()).parallel()
+                : IntStream.range(0, rows.size());
+
+        return rng
+                .mapToObj(i -> {
+                    String norm = normalizeRow(rows.get(i));
+                    return (norm.isBlank() || norm.length() < 3)
+                            ? null
+                            : new RowNorm(i, norm);
+                })
+                .filter(Objects::nonNull)
                 .toList();
     }
 

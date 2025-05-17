@@ -1,9 +1,11 @@
 package mas.sheets.sheetsdatacleaner.service;
 
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
+
 import java.util.List;
 
 public interface RowNormalizerService {
 
-    List<String> normalizeRows(List<List<String>> rows);
+    List<RowNorm> normalizeRows(List<List<String>> rows);
 
 }

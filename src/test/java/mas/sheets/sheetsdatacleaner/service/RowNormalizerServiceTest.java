@@ -1,12 +1,11 @@
 package mas.sheets.sheetsdatacleaner.service;
 
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
 import mas.sheets.sheetsdatacleaner.service.impl.RowNormalizerServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.ArrayList;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,6 +13,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RowNormalizerServiceTest {
 
     private final RowNormalizerServiceImpl service = new RowNormalizerServiceImpl();
+
+    private static List<String> values(List<RowNorm> list) {
+        return list.stream().map(RowNorm::value).toList();
+    }
 
     @Test
     void shouldNormalizeWideRangeOfInputsCorrectly() {
@@ -29,53 +32,52 @@ class RowNormalizerServiceTest {
                 Arrays.asList("Aleksei Petrov", "aleksei.petrov@mail.ru"),
                 Arrays.asList("A. Petrov", "aleksei.petrov+test@mail.ru"),
 
-                // Дополнительные тестовые данные - имена
+                // Names
                 Arrays.asList("John Smith", "JOHN SMITH", "J. Smith"),
                 Arrays.asList("O'Connor", "O`Connor", "O'Connor-Williams"),
                 Arrays.asList("Mary-Anne Johnson", "Mary Anne Johnson"),
                 Arrays.asList("van der Waals", "VAN DER WAALS"),
 
-                // Адреса и местоположения
+                // Addresses
                 Arrays.asList("123 Main St, Apt 4B", "123 Main Street, Apartment 4B"),
                 Arrays.asList("New York, NY 10001", "NY, New York 10001"),
                 Arrays.asList("San-Francisco", "San Francisco", "SanFrancisco"),
                 Arrays.asList("ul. Leninskaya, d. 15", "Leninskaya st., 15"),
 
-                // Даты и числовые форматы
+                // Dates & numbers
                 Arrays.asList("2023-01-15", "01/15/2023", "15.01.2023"),
                 Arrays.asList("$1,234.56", "1234.56 USD", "1,234.56$"),
                 Arrays.asList("ID: 12345-AB", "ID#12345AB", "ID: 12345 AB"),
                 Arrays.asList("+1 (234) 567-8901", "+12345678901", "234-567-8901"),
 
-                // Email и контактная информация
+                // Emails
                 Arrays.asList("john.doe@example.com", "john.doe+newsletters@example.com"),
                 Arrays.asList("info@компания.рф", "info@xn--80aswg.xn--p1ai"),
                 Arrays.asList("user@googlemail.com", "user@gmail.com"),
                 Arrays.asList("support+123@outlook.com", "support@outlook.com"),
 
-                // Смешанные регистры и специальные символы
+                // Mixed case / special chars
                 Arrays.asList("MiXeD CaSe TeXt", "mixed case text"),
                 Arrays.asList("C++", "C#", "Java_Script"),
                 Arrays.asList("alpha-beta-gamma", "alpha.beta.gamma"),
                 Arrays.asList("text::with::colons", "text/with/slashes"),
 
-                // Многоязычные данные
+                // Multilingual
                 Arrays.asList("München", "Muenchen", "Munich"),
                 Arrays.asList("北京市", "Beijing", "Пекин"),
                 Arrays.asList("서울", "Seoul", "Сеул"),
                 Arrays.asList("Straße", "Strasse", "Улица"),
 
-                // Сложные, комбинированные данные
+                // Complex combos
                 Arrays.asList("Dr. John Smith, MD", "John Smith, M.D."),
                 Arrays.asList("2022 Q4 Report", "Report for Q4 2022"),
                 Arrays.asList("Project #123-XYZ", "Project: 123 XYZ"),
                 Arrays.asList("a/b ratio: 15%", "a:b = 15%")
         );
 
-        List<String> result = service.normalizeRows(input);
+        List<String> result = values(service.normalizeRows(input));
 
         assertThat(result).containsExactly(
-                // Базовые примеры
                 "anton markov",
                 "markov anton",
                 "anton markov | antonmarkov@gmail.com",
@@ -86,64 +88,60 @@ class RowNormalizerServiceTest {
                 "aleksei petrov | aleksei.petrov@mail.ru",
                 "a. petrov | aleksei.petrov+test@mail.ru",
 
-                // Имена
+                // Names
                 "john smith | john smith | j. smith",
                 "oconnor | oconnor | oconnor-williams",
                 "mary-anne johnson | mary anne johnson",
                 "van der waals | van der waals",
 
-                // Адреса и география
+                // Addresses
                 "123 main st apt 4b | 123 main street apartment 4b",
                 "new york ny 10001 | ny new york 10001",
                 "san-francisco | san francisco | sanfrancisco",
                 "ul. leninskaya d. 15 | leninskaya st. 15",
 
-                // Даты и числа
+                // Dates & numbers
                 "2023-01-15 | 01/15/2023 | 15.01.2023",
                 "1234.56 | 1234.56 usd | 1234.56",
                 "id 12345-ab | id#12345ab | id 12345 ab",
                 "1 234 567-8901 | 12345678901 | 234-567-8901",
 
-                // Email
+                // Emails
                 "john.doe@example.com | john.doe+newsletters@example.com",
                 "info@xn--80aqeigdi5k.xn--p1ai | info@xn--80aswg.xn--p1ai",
                 "user@gmail.com | user@gmail.com",
                 "support@outlook.com | support@outlook.com",
 
-                // Спецсимволы / регистры
+                // Special chars / case
                 "mixed case text | mixed case text",
                 "c | c# | java_script",
                 "alpha-beta-gamma | alpha.beta.gamma",
                 "textwithcolons | text/with/slashes",
 
-                // Многоязычные строки
+                // Multilingual
                 "munchen | muenchen | munich",
                 "bei jing shi | beijing | pekin",
                 "seoul | seoul | seul",
                 "straße | strasse | ulica",
 
-                // Сложные комбинированные
+                // Complex combos
                 "dr. john smith md | john smith m.d.",
                 "2022 q4 report | report for q4 2022",
                 "project #123-xyz | project 123 xyz",
                 "a/b ratio 15 | ab  15"
         );
-
     }
 
     @Test
     void shouldHandleEmptyAndNullInputs() {
-        // Проверка null и пустых входных данных
-        assertThat(service.normalizeRows(null)).isEmpty();
-        assertThat(service.normalizeRows(List.of())).isEmpty();
+        assertThat(values(service.normalizeRows(null))).isEmpty();
+        assertThat(values(service.normalizeRows(List.of()))).isEmpty();
 
-        // Проверка списка с null значениями
-        List<List<String>> nullRowsList = Arrays.asList(null, null);
-        assertThat(service.normalizeRows(nullRowsList)).isEmpty();
+        List<List<String>> nullRowsList  = Arrays.asList(null, null);
+        assertThat(values(service.normalizeRows(nullRowsList))).isEmpty();
 
-        // Проверка списка с пустыми списками
         List<List<String>> emptyRowsList = Arrays.asList(List.of(), List.of());
-        assertThat(service.normalizeRows(emptyRowsList)).isEmpty();
+        assertThat(values(service.normalizeRows(emptyRowsList))).isEmpty();
     }
 
     @Test
@@ -161,7 +159,7 @@ class RowNormalizerServiceTest {
                 List.of("user@домен.укр")
         );
 
-        List<String> result = service.normalizeRows(emails);
+        List<String> result = values(service.normalizeRows(emails));
 
         assertThat(result).containsExactly(
                 "johndoe@gmail.com",
@@ -192,7 +190,7 @@ class RowNormalizerServiceTest {
                 List.of("Company: \"Acme Inc.\"")
         );
 
-        List<String> result = service.normalizeRows(texts);
+        List<String> result = values(service.normalizeRows(texts));
 
         assertThat(result).containsExactly(
                 "javascript",
@@ -208,21 +206,17 @@ class RowNormalizerServiceTest {
 
     @Test
     void shouldParallelizeForLargeInputs() {
-        // Создаем список с количеством строк выше порога параллелизации
         int rowCount = 15_000;
         List<List<String>> largeInput = new ArrayList<>(rowCount);
-
         for (int i = 0; i < rowCount; i++) {
             largeInput.add(List.of("Row " + i, "Value " + i));
         }
 
-        // Проверяем, что обработка выполняется без ошибок
-        long startTime = System.currentTimeMillis();
-        List<String> result = service.normalizeRows(largeInput);
-        long endTime = System.currentTimeMillis();
+        long start = System.currentTimeMillis();
+        List<String> result = values(service.normalizeRows(largeInput));
+        long time  = System.currentTimeMillis() - start;
 
-        // Тест проходит, если обработка завершена и время выполнения в разумных пределах
         assertThat(result).hasSize(rowCount);
-        assertThat(endTime - startTime).isLessThan(5000); // Не более 5 секунд
+        assertThat(time).isLessThan(5_000);
     }
 }

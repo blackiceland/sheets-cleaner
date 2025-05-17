@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.ints.IntIterator;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
 import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +20,8 @@ import java.util.stream.IntStream;
 @Slf4j
 public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDetectionService {
 
+    /* ─────────────────── константы ─────────────────── */
+
     private static final int SIGNATURE_SIZE = 128;
     private static final int SHORT_ROW_MAX_LENGTH = 20;
     private static final int VERY_SHORT_LEN = 18;
@@ -26,13 +29,9 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
     private static final int MIN_NGRAM_OVERLAP = 8;
     private static final int MAX_BATCH = 100_000;
     private static final int MAX_LEN = 1_000;
-
-    /* ← правка: жёсткий лимит «звёзд» */
     private static final int MAX_PAIRS_PER_ROW = 30;
 
-    /* stop-лист: 24-битная маска → 2 МБ BitSet */
     private static final int HASH_MASK = (1 << 24) - 1;
-
     private static final int[] SEED = new int[SIGNATURE_SIZE];
 
     static {
@@ -40,31 +39,32 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         for (int i = 0; i < SIGNATURE_SIZE; i++) SEED[i] = r.nextInt();
     }
 
-    private static final LshParams DEFAULT_PARAMS =
-            new LshParams(4, SIGNATURE_SIZE / 4, 0.22, 0.23);
-    private final AtomicReference<LshParams> params = new AtomicReference<>(DEFAULT_PARAMS);
+    /* ─────────────────── LSH-параметры ─────────────────── */
 
     private record LshParams(int bandSize, int bandCount, double thrShort, double thrLong) {
     }
 
+    private static final LshParams DEFAULT_PARAMS =
+            new LshParams(4, SIGNATURE_SIZE / 4, 0.22, 0.23);
+    private final AtomicReference<LshParams> params = new AtomicReference<>(DEFAULT_PARAMS);
+
     /* ====================================================================== */
 
     @Override
-    public Set<IndexPair> generateCandidatePairs(List<String> rows) {
-
+    public Set<IndexPair> generateCandidatePairs(List<RowNorm> rows) {
         if (rows == null || rows.isEmpty()) return Collections.emptySet();
         if (rows.size() > MAX_BATCH) throw new IllegalArgumentException("Batch too large");
         if (params.get() == DEFAULT_PARAMS) autocalibrate(rows);
 
-        /* ---------- online stop-list (отсечение > 5 % строк) ---------- */
+        /* -------- stop-list (noisy триграммы) -------- */
         BitSet noisy;
         if (rows.size() < 200) {
-            noisy = new BitSet(0);                             // малый батч → фильтр выключен
+            noisy = new BitSet(0);                          // фильтр выключен
         } else {
-            int limit = Math.max(20, rows.size() / 50);   // раньше /33  (3 %)
+            int limit = Math.max(20, rows.size() / 50);     // ≈5 %
             Int2IntOpenHashMap df = new Int2IntOpenHashMap(1 << 18);
 
-            rows.forEach(r -> collectTrigrams(r == null ? "" : r)
+            rows.forEach(r -> collectTrigrams(r == null ? "" : r.value())
                     .forEach(g -> df.addTo(g & HASH_MASK, 1)));
 
             noisy = new BitSet(1 << 24);
@@ -74,15 +74,17 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             df.clear();
         }
 
-        /* ---------- подготовка строк ---------- */
+        /* -------- подготовка строк -------- */
         LshParams p = params.get();
-        int bandSize = p.bandSize(), bandCount = p.bandCount();
+        int bandSize = p.bandSize();
+        int bandCount = p.bandCount();
         int n = rows.size();
+
         MinHashData[] buf = new MinHashData[n];
 
         IntStream.range(0, n).parallel().forEach(i -> {
             try {
-                String raw = rows.get(i);
+                String raw = rows.get(i).value();
                 if (raw == null) raw = "";
                 raw = Normalizer.normalize(raw, Normalizer.Form.NFKC);
                 if (raw.length() > MAX_LEN) raw = raw.substring(0, MAX_LEN);
@@ -108,9 +110,10 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         });
 
-        /* ---------- LSH-корзины и ограничение MAX_PAIRS_PER_ROW ---------- */
+        /* -------- LSH-корзины -------- */
         int[] pairCnt = new int[n];
         Map<Long, IntArrayList> buckets = new HashMap<>(n * bandCount / 4);
+
         for (int idx = 0; idx < n; idx++) {
             int[] sig = buf[idx].signature;
             for (int b = 0; b < bandCount; b++) {
@@ -120,6 +123,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         }
 
+        /* -------- перебор внутри корзин -------- */
         Set<IndexPair> out = new HashSet<>();
         buckets.values().forEach(list -> {
             int[] arr = list.elements();
@@ -134,8 +138,11 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                     if (!sameAcronym(buf[a], buf[b]) && !lenCompatible(buf[a], buf[b])) continue;
 
                     double thr = threshold(buf[a].len, buf[b].len, p);
-                    if (passes(buf[a], buf[b], thr) || wordOverlap(rows.get(a), rows.get(b))) {
+                    if (passes(buf[a], buf[b], thr) ||
+                            wordOverlap(rows.get(a).value(), rows.get(b).value())) {
+
                         out.add(IndexPair.of(a, b));
+
                         if (++pairCnt[a] >= MAX_PAIRS_PER_ROW) break;
                         pairCnt[b]++;
                     }
@@ -144,11 +151,10 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         });
 
         log.info("{} rows processed", out.size());
-
         return out;
     }
 
-    /* ---------- вспомогательные фильтры ---------- */
+    /* ----------------------- вспомогательные фильтры ----------------------- */
 
     private static boolean lenCompatible(MinHashData x, MinHashData y) {
         if (x.effLen < 16 || y.effLen < 16) return true;
@@ -161,7 +167,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return !x.acronym.isEmpty() && x.acronym.equals(y.acronym);
     }
 
-    /* ---------- построение подписи с учётом stop-листа ---------- */
+    /* ----------------------- MinHash utils ----------------------- */
 
     private static int[] buildSignature(IntOpenHashSet grams, BitSet noisy) {
         int[] sig = new int[SIGNATURE_SIZE];
@@ -182,7 +188,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         String s = " " + raw.replace('|', ' ') + " ";
         int[] cps = s.codePoints().toArray();
         IntOpenHashSet set = new IntOpenHashSet(cps.length);
-
         for (int i = 0; i <= cps.length - 3; i++) {
             int h = mix3(cps[i], cps[i + 1], cps[i + 2]);
             set.add(h);
@@ -226,15 +231,13 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         }
 
         int base = Math.min(a.len, b.len);
-        int dynMin;
-        if (base <= 40) {
-            dynMin = MIN_NGRAM_OVERLAP;
-        } else {
-            dynMin = Math.max(MIN_NGRAM_OVERLAP, (int) Math.ceil(base / 4.0));
-        }
+        int dynMin = (base <= 40) ? MIN_NGRAM_OVERLAP
+                : Math.max(MIN_NGRAM_OVERLAP, (int) Math.ceil(base / 4.0));
 
+        int minOverlap = Math.min(a.len, b.len) < VERY_SHORT_LEN
+                ? MIN_OVERLAP_VERY_SHORT
+                : dynMin;
 
-        int minOverlap = Math.min(a.len, b.len) < VERY_SHORT_LEN ? MIN_OVERLAP_VERY_SHORT : dynMin;
         if (inter < minOverlap) return false;
 
         int union = a.ngrams.length + b.ngrams.length - inter;
@@ -243,7 +246,9 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
     private boolean wordOverlap(String a, String b) {
         IntOpenHashSet seen = new IntOpenHashSet();
-        Arrays.stream(a.split("\\W+")).filter(t -> t.length() > 3).forEach(t -> seen.add(t.hashCode()));
+        Arrays.stream(a.split("\\W+"))
+                .filter(t -> t.length() > 3)
+                .forEach(t -> seen.add(t.hashCode()));
         int common = 0;
         for (String w : b.split("\\W+"))
             if (w.length() > 3 && seen.contains(w.hashCode()) && ++common >= 2) return true;
@@ -258,9 +263,9 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return p.thrShort() - k * (p.thrShort() - p.thrLong());
     }
 
-    /* ---------- auto-калибровка LSH (не изменялась) ---------- */
+    /* ----------------------- автокалибровка LSH ----------------------- */
 
-    private void autocalibrate(List<String> rows) {
+    private void autocalibrate(List<RowNorm> rows) {
         int total = rows.size();
         if (total < 50) return;
 
@@ -268,7 +273,8 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         Random rnd = new Random(123);
         List<int[]> sigs = new ArrayList<>(sample);
         for (int i = 0; i < sample; i++)
-            sigs.add(buildSignature(collectTrigrams(rows.get(rnd.nextInt(total))), new BitSet(0)));
+            sigs.add(buildSignature(
+                    collectTrigrams(rows.get(rnd.nextInt(total)).value()), new BitSet(0)));
 
         int bestBand = 4;
         double bestΔ = Double.MAX_VALUE;
@@ -304,7 +310,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         params.set(new LshParams(bestBand, SIGNATURE_SIZE / bestBand, sThr, lThr));
     }
 
-    /* ---------- DTO ---------- */
+    /* ----------------------- DTO ----------------------- */
 
     private static final class MinHashData {
         final int[] signature;
@@ -325,7 +331,8 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             if (arr.length == 0) return arr;
             Arrays.sort(arr);
             int w = 1;
-            for (int i = 1; i < arr.length; i++) if (arr[i] != arr[w - 1]) arr[w++] = arr[i];
+            for (int i = 1; i < arr.length; i++)
+                if (arr[i] != arr[w - 1]) arr[w++] = arr[i];
             return Arrays.copyOf(arr, w);
         }
     }
