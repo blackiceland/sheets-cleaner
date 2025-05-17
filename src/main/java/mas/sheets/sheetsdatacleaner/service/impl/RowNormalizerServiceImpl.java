@@ -31,12 +31,21 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     private static final Pattern URL_PROTOCOL = Pattern.compile("^(https?://)?(www\\.)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern URL_TRAIL_SLASH = Pattern.compile("/+$");
-    private static final Pattern URL_PATTERN = Pattern.compile("^[a-z][a-z0-9+.-]*://.*|\\w+\\.\\w+.*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_PATTERN = Pattern.compile(
+            "^[a-z][a-z0-9+.-]*://.*|\\w+\\.\\w+.*", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern FRACTION_ONE_HALF = Pattern.compile("^(½|1/2|50 ?%)$");
     private static final Pattern PHONE_DIGITS = Pattern.compile("\\D");
 
-    /* geo   40.7128 -74.0060  |  40.7128,-74.0060  | 40.7128° N, 74.0060° W */
+    /* предварительный «телефонный» фильтр */
+    private static final Pattern MAY_BE_PHONE =
+            Pattern.compile("^[+\\d()\\-./\\s]{8,}$");
+
+    /* явные «не-телефонные» префиксы */
+    private static final Pattern PHONE_PREFIXES =
+            Pattern.compile("^(isbn|sn|sku|id|hash|md5|sha)[\\s:]+", Pattern.CASE_INSENSITIVE);
+
+    /* geo   40.7128 -74.0060 | 40.7128,-74.0060 | 40.7128° N, 74.0060° W */
     private static final Pattern GEO =
             Pattern.compile("\\b(\\d{1,3}\\.\\d+)°?\\s*[nNsS]?[, ]\\s*(-?\\d{1,3}\\.\\d+)°?\\s*[eEwW]?\\b");
 
@@ -173,7 +182,7 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
     }
 
     /**
-     * домен (+порт) и первые два сегмента пути, query/anchor отбрасываем
+     * домен (+порт) и ≤2 сегмента пути, query/anchor отбрасываем
      */
     private String normalizeUrl(String url) {
         url = URL_PROTOCOL.matcher(url).replaceFirst("");
@@ -186,9 +195,9 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
         url = URL_TRAIL_SLASH.matcher(url).replaceAll("");
 
         int slash = url.indexOf('/');
-        if (slash < 0) return url;                       // только домен
+        if (slash < 0) return url;
 
-        String domain = url.substring(0, slash);         // домен + :порт
+        String domain = url.substring(0, slash);
         String[] parts = url.substring(slash + 1).split("/");
 
         if (parts.length == 0) return domain;
@@ -199,30 +208,40 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     /* ──────────────── phone ─────────────────────────────────────── */
 
-    private String tryNormalizePhone(String input) {
+    private String tryNormalizePhone(String rawInput) {
 
-        String raw = input == null ? "" : input.trim();
+        if (rawInput == null) return null;
+        String raw = rawInput.trim();
+
+        /* 0-а. явные префиксы не-телефонов */
+        if (PHONE_PREFIXES.matcher(raw).find()) return null;
+
+        /* 0-б. допустимые символы и минимальная «визуальная» длина */
+        if (!MAY_BE_PHONE.matcher(raw).matches()) return null;
+
+        /* 0-в. чистое число цифр */
+        String digits = PHONE_DIGITS.matcher(raw).replaceAll("");
+        if (digits.length() < 10 || digits.length() > 15) return null;
+
+        /* подготовка строки: tel:, 00→+, убрать () */
         if (raw.startsWith("tel:")) raw = raw.substring(4);
-
-        // убираем всё после ';' (расширения), заменяем () и "00" → '+'
-        int ext = raw.indexOf(';');
-        if (ext > 0) raw = raw.substring(0, ext);
+        int idx = raw.indexOf(';');              // обрезаем расширение
+        if (idx > 0) raw = raw.substring(0, idx);
         raw = raw.replace('(', ' ').replace(')', ' ');
         if (raw.startsWith("00")) raw = '+' + raw.substring(2);
 
-        String digits = PHONE_DIGITS.matcher(raw).replaceAll("");
-        if (digits.length() < 10) return null;
-
-        String region = Locale.getDefault().getCountry();
-        if (region.isBlank()) region = "US";          // fallback
+        /* регион: только если нет «+» */
+        String region = raw.startsWith("+") ? null :
+                Optional.ofNullable(Locale.getDefault().getCountry())
+                        .filter(c -> !c.isBlank())
+                        .orElse("US");
 
         try {
             var num = phoneUtil.parse(raw, region);
-            if (phoneUtil.isValidNumber(num)) {
+            if (phoneUtil.isPossibleNumber(num) && phoneUtil.isValidNumber(num)) {
                 return phoneUtil.format(num, PhoneNumberUtil.PhoneNumberFormat.E164);
             }
-        } catch (NumberParseException ignored) {
-        }
+        } catch (NumberParseException ignored) { /* not a phone */ }
         return null;
     }
 
@@ -237,14 +256,14 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     private String tryNormalizeDate(String v) {
         for (DateTimeFormatter fmt : DATE_FMT) {
-            try {                               // сначала как «чистая» дата
+            try {                                            // как дата
                 return LocalDate.parse(v, fmt).format(ISO_DATE);
             } catch (DateTimeParseException ignored) {
-                try {                           // затем дата-время
+                try {                                        // как дата-время
                     LocalDateTime dt = LocalDateTime.parse(v, fmt);
                     return dt.toLocalDate().format(ISO_DATE);
                 } catch (DateTimeParseException ignored2) {
-                    /* next fmt */
+                    /* next pattern */
                 }
             }
         }
