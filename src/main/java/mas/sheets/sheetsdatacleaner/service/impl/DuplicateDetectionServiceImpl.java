@@ -30,35 +30,41 @@ import java.util.stream.IntStream;
 @Slf4j
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
-    /* ── константы без изменений ───────────────────────────────────── */
-    private static final double HARD_REJECT_THRESHOLD = 0.25;
-    private static final double FAST_REJECT_THRESHOLD = 0.35;
-    private static final double FAST_CONFIRM_LONG = 0.55;
-    private static final double FAST_CONFIRM_SHORT = 0.70;
-    private static final int SHORT_LEN_LIMIT = 30;
-    private static final double NEURAL_CONFIRM_THRESHOLD = 0.78;
+    /* ── гибкие пороги ─────────────────────────────────────────────── */
+    private static final double HARD_REJECT_SHORT = 0.15;   // строка < 15 симв
+    private static final double HARD_REJECT_LONG = 0.25;   // ≥ 15 симв
 
+    private static final double FAST_REJECT_THRESHOLD = 0.35;
+
+    private static final double FAST_CONFIRM_SHORT = 0.65;   // строка < 30 симв
+    private static final double FAST_CONFIRM_LONG = 0.55;   // ≥ 30 симв
+    private static final int SHORT_LEN_LIMIT = 30;
+
+    private static final int NN_LEN_LIMIT = 20;     // порог для NN
+    private static final double NN_CONFIRM_SHORT = 0.65;   // len < 20
+    private static final double NN_CONFIRM_LONG = 0.78;   // len ≥ 20
+
+    /* ── веса эвристических скореров ──────────────────────────────── */
     private static final double TOKEN_WEIGHT = 0.60;
     private static final double LEV_WEIGHT = 0.25;
     private static final double JW_WEIGHT = 0.10;
 
+    /* ── параллельность ───────────────────────────────────────────── */
     private static final int NEURAL_BATCH_SIZE = 50;
     private static final int CORE = Runtime.getRuntime().availableProcessors();
     private static final int MAX_IN_FLIGHT = 4_000;
 
-    /* ── зависимости ───────────────────────────────────────────────── */
+    /* ── зависимости ─────────────────────────────────────────────── */
     private final ExactDuplicateDetector exactDetector;
     private final MinHashCandidateDetectionService candidateGenerator;
     private final RowNormalizerService normalizer;
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
 
-    private final BlockingQueue<Runnable> queue =
-            new ArrayBlockingQueue<>(MAX_IN_FLIGHT);
+    private final BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(MAX_IN_FLIGHT);
 
     private final ExecutorService workers =
-            new ThreadPoolExecutor(CORE * 2, CORE * 2,
-                    0L, TimeUnit.SECONDS, queue);
+            new ThreadPoolExecutor(CORE * 2, CORE * 2, 0L, TimeUnit.SECONDS, queue);
 
     private final ExecutorService neuralPool =
             Executors.newFixedThreadPool(Math.min(4, CORE));
@@ -116,20 +122,26 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         /* 2️⃣  ТОЧНЫЕ ДУБЛИКАТЫ ------------------------------------------- */
         ExactDetectionResult exact = exactDetector.detect(normalized);
 
-        log.info("=================================================================================");
-        log.info(
-                "PIPELINE-2: exactGroups={} remainingRows={}\nGroups:\n{}",
-                exact.duplicateGroups().size(),
-                exact.remainingRows().size(),
-                exact.duplicateGroups().stream()
-                        .map(gr -> gr.stream()
-                                .map(i -> String.format("[%d] %s", i,
-                                        normalized.get(i).value()))
-                                .collect(Collectors.joining(", ")))
-                        .collect(Collectors.joining(System.lineSeparator()))
-        );
 
-        /* --- confirmed из точных групп --- */
+        Map<Integer, RowNorm> normByIdx = normalized.stream()
+                .collect(Collectors.toMap(RowNorm::idx, rn -> rn));
+
+        log.info("=================================================================================");
+        log.info("PIPELINE-2: exactGroups={}  remainingRows={}",
+                exact.duplicateGroups().size(),
+                exact.remainingRows().size());
+
+        exact.duplicateGroups().forEach(gr -> {
+            String joined = gr.stream()
+                    .sorted()
+                    .map(idx -> String.format("[%d] %s",
+                            idx,
+                            normByIdx.get(idx).value()))
+                    .collect(Collectors.joining(", "));
+            log.info("GROUP {}", joined);
+        });
+
+        /* confirmed из точных групп */
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
         Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
 
@@ -147,8 +159,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         }
 
         /* 3️⃣  MinHash КАНДИДАТЫ ----------------------------------------- */
-        List<RowNorm> restRows = exact.remainingRows();
-        List<Integer> restIdx = exact.originalIndexes();
+        List<RowNorm> restRows = exact.remainingRows();   // уже RowNorm
+        List<Integer> restIdx = exact.originalIndexes(); // нужен для mapOriginal
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
 
@@ -168,7 +180,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             return new DuplicateMatchResponse(confirmed, probable);
         }
 
-        /* 3.1  ЭВРИСТИЧЕСКИЙ СКОРИНГ -------------------------------------- */
+        /* 3.1  ЭВРИСТИКА -------------------------------------------------- */
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
         List<IndexPair> hardRejectPairs = new CopyOnWriteArrayList<>();
         List<IndexPair> fastConfirmPairs = new CopyOnWriteArrayList<>();
@@ -182,12 +194,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 try {
                     PairEval ev = evaluatePair(p, restRows);
 
-                    if (ev.weightedScore <= HARD_REJECT_THRESHOLD) {
+                    /* --- Hard-reject с гибким порогом --- */
+                    double hardThr = (ev.maxLen < 15) ? HARD_REJECT_SHORT : HARD_REJECT_LONG;
+                    if (ev.weightedScore <= hardThr) {
                         hardRejected.incrementAndGet();
                         hardRejectPairs.add(p);
                         return;
                     }
 
+                    /* --- Fast-confirm с гибким порогом --- */
                     double confirmThr = (ev.maxLen < SHORT_LEN_LIMIT)
                             ? FAST_CONFIRM_SHORT : FAST_CONFIRM_LONG;
 
@@ -205,7 +220,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             try {
                 workers.execute(job);
             } catch (RejectedExecutionException ex) {
-                job.run();                               // caller-runs fallback
+                job.run(); // caller-runs fallback
             }
         }
 
@@ -251,7 +266,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         );
 
         /* 4️⃣  НЕЙРОСЕТЬ --------------------------------------------------- */
-        if (!toNeural.isEmpty()) runNeuralStage(toNeural, restRows, restIdx, probable);
+        if (!toNeural.isEmpty())
+            runNeuralStage(toNeural, restRows, restIdx, probable);
 
         /* 5️⃣  ФИНАЛ ------------------------------------------------------- */
         log.info("=================================================================================");
@@ -259,17 +275,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 "PIPELINE-END: confirmedTotal={} probableTotal={}\n"
                         + "Confirmed pairs:\n{}\n"
                         + "Probable pairs:\n{}",
-                confirmed.size(),
-                probable.size(),
+                confirmed.size(), probable.size(),
+
                 confirmed.stream()
-                        .map(p -> String.format(
-                                "[%d] %s  <->  [%d] %s",
+                        .map(p -> String.format("[%-4d] %s  <->  [%-4d] %s",
                                 p.first(), String.join(" | ", request.rows().get(p.first())),
                                 p.second(), String.join(" | ", request.rows().get(p.second()))))
                         .collect(Collectors.joining(System.lineSeparator())),
+
                 probable.stream()
-                        .map(p -> String.format(
-                                "[%d] %s  <->  [%d] %s",
+                        .map(p -> String.format("[%-4d] %s  <->  [%-4d] %s",
                                 p.first(), String.join(" | ", request.rows().get(p.first())),
                                 p.second(), String.join(" | ", request.rows().get(p.second()))))
                         .collect(Collectors.joining(System.lineSeparator()))
@@ -278,7 +293,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     }
 
     /* ====================================================================== */
-    /*                             HELPERS                                    */
+    /*                               HELPERS                                  */
     /* ====================================================================== */
 
     private PairEval evaluatePair(IndexPair pair, List<RowNorm> rows) {
@@ -320,8 +335,13 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
                 int added = 0;
                 for (int k = 0; k < slice.size(); k++) {
-                    if (scores.getOrDefault(q.get(k), 0.0) >= NEURAL_CONFIRM_THRESHOLD) {
-                        probable.add(mapOriginal(slice.get(k).pair, originalIdx));
+                    PairEval ev = slice.get(k);
+                    double thr = (ev.maxLen < NN_LEN_LIMIT)
+                            ? NN_CONFIRM_SHORT
+                            : NN_CONFIRM_LONG;
+
+                    if (scores.getOrDefault(q.get(k), 0.0) >= thr) {
+                        probable.add(mapOriginal(ev.pair, originalIdx));
                         added++;
                     }
                 }

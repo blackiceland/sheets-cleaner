@@ -31,17 +31,18 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     private static final Pattern URL_PROTOCOL = Pattern.compile("^(https?://)?(www\\.)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern URL_TRAIL_SLASH = Pattern.compile("/+$");
-    private static final Pattern URL_PATTERN = Pattern.compile(
-            "^[a-z][a-z0-9+.-]*://.*|\\w+\\.\\w+.*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_PATTERN = Pattern.compile("^[a-z][a-z0-9+.-]*://.*|\\w+\\.\\w+.*", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern FRACTION_ONE_HALF = Pattern.compile("^(½|1/2|50 ?%)$");
     private static final Pattern PHONE_DIGITS = Pattern.compile("\\D");
 
+    /* geo   40.7128 -74.0060  |  40.7128,-74.0060  | 40.7128° N, 74.0060° W */
+    private static final Pattern GEO =
+            Pattern.compile("\\b(\\d{1,3}\\.\\d+)°?\\s*[nNsS]?[, ]\\s*(-?\\d{1,3}\\.\\d+)°?\\s*[eEwW]?\\b");
+
     /* ──────────────── Date formatters ────────────────────────────── */
 
     private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
-    private static final DateTimeFormatter ISO_DATETIME = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
-
 
     private static final List<DateTimeFormatter> DATE_FMT = List.of(
             DateTimeFormatter.ofPattern("dd.MM.yy"),
@@ -120,6 +121,9 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
         String phone = tryNormalizePhone(text);
         if (phone != null) return phone;
 
+        String geo = tryNormalizeGeo(text);
+        if (geo != null) return geo;
+
         if (isFraction(text)) return "0.5";
 
         return normalizeText(text);
@@ -195,45 +199,52 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
 
     /* ──────────────── phone ─────────────────────────────────────── */
 
-    /**
-     * * &lt; 10 цифр → «не телефон»
-     * * `parse` + `isValidNumber` → форматируем в E.164
-     * * при ошибке **ничего не меняем** – строка остаётся обычным текстом
-     */
-    private String tryNormalizePhone(String v) {
+    private String tryNormalizePhone(String input) {
 
-        // 1) удаляем префикс tel:
-        String raw = v.startsWith("tel:") ? v.substring(4) : v;
+        String raw = input == null ? "" : input.trim();
+        if (raw.startsWith("tel:")) raw = raw.substring(4);
 
-        // 2) первичная фильтрация по длине
+        // убираем всё после ';' (расширения), заменяем () и "00" → '+'
+        int ext = raw.indexOf(';');
+        if (ext > 0) raw = raw.substring(0, ext);
+        raw = raw.replace('(', ' ').replace(')', ' ');
+        if (raw.startsWith("00")) raw = '+' + raw.substring(2);
+
         String digits = PHONE_DIGITS.matcher(raw).replaceAll("");
         if (digits.length() < 10) return null;
 
-        // 3) libphonenumber
+        String region = Locale.getDefault().getCountry();
+        if (region.isBlank()) region = "US";          // fallback
+
         try {
-            var num = phoneUtil.parse(raw, "");          // auto-region; требует + или 00
+            var num = phoneUtil.parse(raw, region);
             if (phoneUtil.isValidNumber(num)) {
                 return phoneUtil.format(num, PhoneNumberUtil.PhoneNumberFormat.E164);
             }
         } catch (NumberParseException ignored) {
-            // fall through – будем трактовать как обычный текст
         }
         return null;
+    }
+
+    /* ──────────────── geo ───────────────────────────────────────── */
+
+    private String tryNormalizeGeo(String v) {
+        var m = GEO.matcher(v);
+        return m.find() ? m.group(1) + "," + m.group(2) : null;
     }
 
     /* ──────────────── date ──────────────────────────────────────── */
 
     private String tryNormalizeDate(String v) {
         for (DateTimeFormatter fmt : DATE_FMT) {
-            try {                               // дата-время
-                LocalDateTime dt = LocalDateTime.parse(v, fmt);
-                return dt.format(ISO_DATETIME);
-            } catch (DateTimeParseException ignored1) {
-                try {                           // только дата
-                    LocalDate d = LocalDate.parse(v, fmt);
-                    return d.format(ISO_DATE);
+            try {                               // сначала как «чистая» дата
+                return LocalDate.parse(v, fmt).format(ISO_DATE);
+            } catch (DateTimeParseException ignored) {
+                try {                           // затем дата-время
+                    LocalDateTime dt = LocalDateTime.parse(v, fmt);
+                    return dt.toLocalDate().format(ISO_DATE);
                 } catch (DateTimeParseException ignored2) {
-                    // try next pattern
+                    /* next fmt */
                 }
             }
         }
