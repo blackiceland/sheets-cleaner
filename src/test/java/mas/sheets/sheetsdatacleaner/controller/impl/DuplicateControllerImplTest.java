@@ -57,6 +57,20 @@ class DuplicateControllerImplTest {
         assertThat(result.candidates()).hasSize(27);
     }
 
+    @Test
+    void emptyRows() throws Exception {
+        when(embedding.embedBatch(anyList()))
+                .thenAnswer(inv -> CompletableFuture.completedFuture(
+                        Collections.nCopies(((List<?>) inv.getArgument(0)).size(), 100.0)));
+
+        DuplicateMatchRequest request = new DuplicateMatchRequest(List.of());
+
+        mvc.perform(post("/api/v1/sheets/duplicates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsBytes(request)))
+                .andExpect(status().isOk());
+    }
+
     private static final List<List<String>> ROWS = List.<List<String>>of(
             List.of("John Smith"), List.of("Smith John"), List.of("J. Smith"), List.of("John SMITH"),
             List.of("Robert Johnson"), List.of("Johnson Robert"), List.of("R. Johnson"), List.of("Robrt Johnson"),

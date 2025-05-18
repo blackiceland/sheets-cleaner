@@ -1,0 +1,22 @@
+spring:
+  servlet:
+    multipart:
+      max-request-size: 8MB
+
+logging:
+  level:
+    mas.sheets.sheetsdatacleaner: INFO
+
+server:
+  tomcat:
+    max-http-form-post-size: 8MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
+embedding:
+  api:
+    base-url: ${EMBEDDING_BASE_URL:http://embedding:5000/similarity}

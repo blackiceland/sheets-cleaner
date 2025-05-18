@@ -2,18 +2,31 @@ package mas.sheets.sheetsdatacleaner.advice;
 
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-import java.util.Map;
+import org.springframework.web.server.PayloadTooLargeException;
 
 @RestControllerAdvice
 public class ErrorHandler {
 
     @ExceptionHandler(BulkheadFullException.class)
     @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
-    public Map<String, String> tooManyRequests() {
-        return Map.of("error", "service busy, try later");
+    ErrorResponse tooManyRequests() {
+        return new ErrorResponse("SERVICE_BUSY", "service busy, try later");
+    }
+
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    ErrorResponse badRequest(Exception ex) {
+        return new ErrorResponse("BAD_REQUEST", ex.getMessage());
+    }
+
+    @ExceptionHandler({PayloadTooLargeException.class, IllegalStateException.class})
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    ErrorResponse payloadTooLarge(Exception ex) {
+        return new ErrorResponse("PAYLOAD_TOO_LARGE", ex.getMessage());
     }
 }
