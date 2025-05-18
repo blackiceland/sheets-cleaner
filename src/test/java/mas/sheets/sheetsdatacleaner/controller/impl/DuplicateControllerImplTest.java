@@ -2,6 +2,7 @@ package mas.sheets.sheetsdatacleaner.controller.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
+import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,9 +41,11 @@ class DuplicateControllerImplTest {
                 .thenAnswer(inv -> CompletableFuture.completedFuture(
                         Collections.nCopies(((List<?>) inv.getArgument(0)).size(), 100.0)));
 
+        DuplicateMatchRequest request = new DuplicateMatchRequest(ROWS);
+
         byte[] resp = mvc.perform(post("/api/v1/sheets/duplicates")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsBytes(ROWS)))
+                        .content(mapper.writeValueAsBytes(request)))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

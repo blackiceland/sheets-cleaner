@@ -6,12 +6,9 @@ import mas.sheets.sheetsdatacleaner.controller.DuplicateController;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 import static mas.sheets.sheetsdatacleaner.util.CleanerUtils.DUPLICATES;
 
@@ -23,12 +20,10 @@ public class DuplicateControllerImpl implements DuplicateController {
     private final DuplicateDetectionService duplicateDetectionService;
 
     @Override
-    @PostMapping(
-            value = DUPLICATES,
-            consumes = MediaType.APPLICATION_JSON_VALUE,
-            produces = MediaType.APPLICATION_JSON_VALUE)
-    public DuplicateMatchResponse detectDuplicates(@RequestBody List<List<String>> rows) {
-        log.info("Detecting duplicates for {} rows", rows.size());
-        return duplicateDetectionService.findDuplicates(new DuplicateMatchRequest(rows));
+    @PostMapping(value = DUPLICATES)
+    public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
+        log.info("Detecting duplicates for {} rows", request.rows());
+
+        return duplicateDetectionService.findDuplicates(request);
     }
 }

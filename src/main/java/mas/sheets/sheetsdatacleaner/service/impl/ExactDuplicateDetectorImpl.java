@@ -16,30 +16,17 @@ import java.util.stream.IntStream;
 public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
 
     private static final int PARALLEL_THRESHOLD = 100_000;
-
     private static final Pattern WORDS = Pattern.compile("[^\\p{IsAlphabetic}\\d]+");
     private static final Pattern PIPE = Pattern.compile("\\s*\\|\\s*");
     private static final Pattern NON_ALNUM = Pattern.compile("[^\\p{Alnum}]");
-
-    private static final Pattern ISBN = Pattern.compile(
-            "(?i)\\b(?:isbn(?::|\\s))?\\s*(97[89][- ]?)?\\d{1,5}[- ]?\\d{1,7}[- ]?\\d{1,7}[- ]?[\\dX]\\b");
-
-    private static final Pattern HEX_HASH =
-            Pattern.compile("\\b[0-9a-fA-F]{32}\\b|\\b[0-9a-fA-F]{40}\\b|\\b[0-9a-fA-F]{64}\\b");
-
-    private static final Pattern URL =
-            Pattern.compile("^[a-z][a-z0-9+.-]*://.*|\\w+\\.[a-z]{2,}.*", Pattern.CASE_INSENSITIVE);
-
+    private static final Pattern ISBN = Pattern.compile("(?i)\\b(?:isbn(?::|\\s))?\\s*(97[89][- ]?)?\\d{1,5}[- ]?\\d{1,7}[- ]?\\d{1,7}[- ]?[\\dX]\\b");
+    private static final Pattern HEX_HASH = Pattern.compile("\\b[0-9a-fA-F]{32}\\b|\\b[0-9a-fA-F]{40}\\b|\\b[0-9a-fA-F]{64}\\b");
+    private static final Pattern URL = Pattern.compile("^[a-z][a-z0-9+.-]*://.*|\\w+\\.[a-z]{2,}.*", Pattern.CASE_INSENSITIVE);
     private static final Pattern PHONE_DIGITS = Pattern.compile("\\D");
-
     private static final int EMPTY_HASH = 0x9E3779B9;
     private static final String CANON_SEP = "\u0001";
-
-    /* ──────────────── тип строки ─────────────────────────────────── */
-
     private enum DataType {PHONE, ISBN, HASH, URL, PLAIN}
 
-    /* ──────────────── public API ─────────────────────────────────── */
 
     @Override
     public ExactDetectionResult detect(List<RowNorm> rows) {
@@ -51,7 +38,6 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         int n = rows.size();
         boolean par = n > PARALLEL_THRESHOLD;
 
-        /* массивы – та же логика, позиции = индекс в переданном списке */
         String[] originalKey = new String[n];
         String[] canonicalKey = new String[n];
         int[] alnumHash = new int[n];
@@ -76,8 +62,6 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
             types[i] = detectType(row);
         });
 
-        /* ── индексация ───────────────────────────────────────────── */
-
         Map<String, List<Integer>> exactIdx = new HashMap<>();
         Map<String, List<Integer>> canonIdx = new HashMap<>();
         Map<Integer, List<Integer>> hashIdx = new HashMap<>();
@@ -85,18 +69,19 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         for (int i = 0; i < n; i++) {
             exactIdx.computeIfAbsent(originalKey[i], k -> new ArrayList<>()).add(i);
             canonIdx.computeIfAbsent(canonicalKey[i], k -> new ArrayList<>()).add(i);
+
             if (alnumHash[i] != EMPTY_HASH)
                 hashIdx.computeIfAbsent(alnumHash[i], k -> new ArrayList<>()).add(i);
         }
 
         DisjointSet dsu = new DisjointSet(n);
+
         unite(exactIdx.values(), dsu);
         unite(canonIdx.values(), dsu);
         uniteHash(hashIdx.values(), dsu, originalKey, canonicalKey, types);
 
-        /* ── формирование групп ───────────────────────────────────── */
-
         Map<Integer, List<Integer>> groups = new HashMap<>();
+
         for (int i = 0; i < n; i++)
             groups.computeIfAbsent(dsu.find(i), k -> new ArrayList<>()).add(i);
 
@@ -117,8 +102,6 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         }
         return new ExactDetectionResult(dupGroups, remainRows, remainIdxSrc);
     }
-
-    /* ──────────────── вспомогательные методы (НЕ изменялись) ─────── */
 
     private void unite(Collection<List<Integer>> buckets, DisjointSet dsu) {
         for (List<Integer> b : buckets) {
@@ -170,6 +153,7 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
             else j++;
         }
         int union = x.length + y.length - inter;
+
         return union == 0 || (double) inter / union >= 0.5;
     }
 
@@ -180,6 +164,7 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         if (URL.matcher(row).matches()) return DataType.URL;
 
         String digits = PHONE_DIGITS.matcher(row).replaceAll("");
+
         return digits.length() >= 10 ? DataType.PHONE : DataType.PLAIN;
     }
 
@@ -188,6 +173,7 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         if (Math.abs(len1 - len2) > 1) return true;
 
         int edits = 0, i = 0, j = 0;
+
         while (i < len1 && j < len2) {
             if (s1.charAt(i) == s2.charAt(j)) {
                 i++;
@@ -204,8 +190,6 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         }
         return edits + (len1 - i) + (len2 - j) > 1;
     }
-
-    /* ──────────────── DSU без изменений ──────────────────────────── */
 
     private static final class DisjointSet {
         private final int[] parent;

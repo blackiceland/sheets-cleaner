@@ -37,14 +37,19 @@ public class NeuralSimilarityServiceImpl implements NeuralSimilarityService {
         if (left == null || right == null) {
             return FALLBACK_SCORE;
         }
+
         Pair<String, String> key = Pair.of(left.strip(), right.strip());
+
         if (key.getLeft().isEmpty() || key.getRight().isEmpty()) {
             return FALLBACK_SCORE;
         }
+
         Double cached = cache.get(key);
+
         if (cached != null) {
             return cached;
         }
+
         return fetchBatchSimilarityScores(List.of(key)).getOrDefault(key, FALLBACK_SCORE);
     }
 
@@ -56,6 +61,7 @@ public class NeuralSimilarityServiceImpl implements NeuralSimilarityService {
 
         Map<Pair<String, String>, Double> result = new HashMap<>();
         List<Pair<String, String>> uncached = new ArrayList<>();
+
         for (Pair<String, String> p : pairs) {
             Double c = cache.get(p);
 
@@ -65,6 +71,7 @@ public class NeuralSimilarityServiceImpl implements NeuralSimilarityService {
                 uncached.add(p);
             }
         }
+
         if (uncached.isEmpty()) {
             return result;
         }
@@ -74,6 +81,7 @@ public class NeuralSimilarityServiceImpl implements NeuralSimilarityService {
                 .toList();
 
         List<Double> scores;
+
         try {
             scores = embeddingClient.embedBatch(payload).join();
         } catch (CompletionException ex) {
@@ -91,6 +99,7 @@ public class NeuralSimilarityServiceImpl implements NeuralSimilarityService {
             cache.put(k, s);
             result.put(k, s);
         }
+
         return result;
     }
 }
