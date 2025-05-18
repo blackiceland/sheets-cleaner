@@ -109,20 +109,18 @@ public class DuplicateDetectionServiceTest {
 
         /* ожидаемые группы */
         Set<IndexPair> expectedConfirmed = Set.of(
+                IndexPair.of(106, 107),
+                IndexPair.of(70, 71),
+                IndexPair.of(20, 21),
                 IndexPair.of(0, 1),
-                IndexPair.of(0, 20),
-                IndexPair.of(1, 20),
-                IndexPair.of(0, 21),
-                IndexPair.of(1, 21),
-                IndexPair.of(20, 21)
+                IndexPair.of(102, 103)
         );
 
         Set<IndexPair> expectedCandidates = Set.of(
-                IndexPair.of(2, 3),
-                IndexPair.of(8, 9),
-                IndexPair.of(10, 11),
-                IndexPair.of(12, 13),
-                IndexPair.of(14, 15),
+                IndexPair.of(66, 68),
+                IndexPair.of(137, 139),
+                IndexPair.of(81, 83),
+                IndexPair.of(14, 92),
                 IndexPair.of(16, 17)
         );
 

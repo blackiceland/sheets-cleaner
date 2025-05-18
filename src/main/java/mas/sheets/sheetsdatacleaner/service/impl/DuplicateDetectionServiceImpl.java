@@ -17,10 +17,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -98,26 +95,26 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
 
         /* ---------- RAW INPUT ---------- */
-        log.info("=================================================================================");
-        log.info(
-                "PIPELINE-START: rows={}\nROWS:\n{}",
-                request.rows().size(),
-                IntStream.range(0, request.rows().size())
-                        .mapToObj(i -> i + ": " + String.join(" | ", request.rows().get(i)))
-                        .collect(Collectors.joining(System.lineSeparator()))
-        );
+//        log.info("=================================================================================");
+//        log.info(
+//                "PIPELINE-START: rows={}\nROWS:\n{}",
+//                request.rows().size(),
+//                IntStream.range(0, request.rows().size())
+//                        .mapToObj(i -> i + ": " + String.join(" | ", request.rows().get(i)))
+//                        .collect(Collectors.joining(System.lineSeparator()))
+//        );
 
         /* 1️⃣  НОРМАЛИЗАЦИЯ ------------------------------------------------ */
         List<RowNorm> normalized = normalizer.normalizeRows(request.rows());
 
-        log.info("=================================================================================");
-        log.info(
-                "PIPELINE-1: normalized={}\nNORMALIZED:\n{}",
-                normalized.size(),
-                normalized.stream()
-                        .map(RowNorm::value)
-                        .collect(Collectors.joining(System.lineSeparator()))
-        );
+//        log.info("=================================================================================");
+//        log.info(
+//                "PIPELINE-1: normalized={}\nNORMALIZED:\n{}",
+//                normalized.size(),
+//                normalized.stream()
+//                        .map(RowNorm::value)
+//                        .collect(Collectors.joining(System.lineSeparator()))
+//        );
 
         /* 2️⃣  ТОЧНЫЕ ДУБЛИКАТЫ ------------------------------------------- */
         ExactDetectionResult exact = exactDetector.detect(normalized);
@@ -164,16 +161,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
 
-        log.info("=================================================================================");
-        log.info(
-                "PIPELINE-3: candidates={}\nPairs:\n{}",
-                pairs.size(),
-                pairs.stream()
-                        .map(p -> String.format("[%d] %s  <->  [%d] %s",
-                                restIdx.get(p.first()), restRows.get(p.first()).value(),
-                                restIdx.get(p.second()), restRows.get(p.second()).value()))
-                        .collect(Collectors.joining(System.lineSeparator()))
-        );
+//        log.info("=================================================================================");
+//        log.info(
+//                "PIPELINE-3: candidates={}\nPairs:\n{}",
+//                pairs.size(),
+//                pairs.stream()
+//                        .map(p -> String.format("[%d] %s  <->  [%d] %s",
+//                                restIdx.get(p.first()), restRows.get(p.first()).value(),
+//                                restIdx.get(p.second()), restRows.get(p.second()).value()))
+//                        .collect(Collectors.joining(System.lineSeparator()))
+//        );
 
         if (pairs.isEmpty()) {
             log.info("PIPELINE-END: noCandidates=true");
@@ -313,11 +310,18 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return new PairEval(pair, weighted, maxLen);
     }
 
+    /* ─────────────────────────────────────────────────────────── */
+    /*  в DuplicateDetectionServiceImpl                            */
+    /* ─────────────────────────────────────────────────────────── */
+
     private void runNeuralStage(List<PairEval> batchList,
                                 List<RowNorm> rows,
                                 List<Integer> originalIdx,
                                 Set<IndexPair> probable) {
 
+        // ── собираем подробные результаты, потокобезопасно
+        Queue<String> accepted  = new ConcurrentLinkedQueue<>();
+        Queue<String> rejected  = new ConcurrentLinkedQueue<>();
         AtomicInteger confirmedByNN = new AtomicInteger();
 
         for (int i = 0; i < batchList.size(); i += NEURAL_BATCH_SIZE) {
@@ -328,29 +332,51 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 List<Pair<String, String>> q = slice.stream()
                         .map(e -> Pair.of(rows.get(e.pair.first()).value(),
                                 rows.get(e.pair.second()).value()))
-                        .collect(Collectors.toList());
+                        .toList();
 
                 Map<Pair<String, String>, Double> scores =
                         neuralService.fetchBatchSimilarityScores(q);
 
-                int added = 0;
                 for (int k = 0; k < slice.size(); k++) {
                     PairEval ev = slice.get(k);
-                    double thr = (ev.maxLen < NN_LEN_LIMIT)
+                    double score = scores.getOrDefault(q.get(k), 0.0);
+                    double thr   = (ev.maxLen < NN_LEN_LIMIT)
                             ? NN_CONFIRM_SHORT
                             : NN_CONFIRM_LONG;
 
-                    if (scores.getOrDefault(q.get(k), 0.0) >= thr) {
+                    String left  = rows.get(ev.pair.first()).value();
+                    String right = rows.get(ev.pair.second()).value();
+                    String msg = String.format(Locale.ROOT,
+                            "[%d] %s  ↔  [%d] %s   (score=%.3f | thr=%.2f)",
+                            originalIdx.get(ev.pair.first()),  left,
+                            originalIdx.get(ev.pair.second()), right,
+                            score, thr);
+
+                    if (score >= thr) {
                         probable.add(mapOriginal(ev.pair, originalIdx));
-                        added++;
+                        confirmedByNN.incrementAndGet();
+                        accepted.add(msg);
+                    } else {
+                        rejected.add(msg);
                     }
                 }
-                confirmedByNN.addAndGet(added);
             };
             CompletableFuture.runAsync(r, neuralPool).join();
         }
+
+        /* ── детальный лог ─────────────────────────────────────── */
         log.info("=================================================================================");
-        log.info("NEURAL: confirmed={} / {}", confirmedByNN.get(), batchList.size());
+        log.info("NEURAL: confirmed={} / {}",
+                confirmedByNN.get(), batchList.size());
+
+        if (!accepted.isEmpty()) {
+            log.info("── CONFIRMED by NN ({}) ──", accepted.size());
+            accepted.forEach(m -> log.info("{}", m));
+        }
+        if (!rejected.isEmpty()) {
+            log.info("── REJECTED by NN ({}) ──", rejected.size());
+            rejected.forEach(m -> log.info("{}", m));
+        }
     }
 
     private IndexPair mapOriginal(IndexPair p, List<Integer> idx) {

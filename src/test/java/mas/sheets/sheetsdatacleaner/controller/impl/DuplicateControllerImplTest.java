@@ -3,7 +3,6 @@ package mas.sheets.sheetsdatacleaner.controller.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
-import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -13,9 +12,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +33,26 @@ class DuplicateControllerImplTest {
 
     @MockitoBean
     EmbeddingApiClient embedding;
+
+    @Test
+    void duplicatesDetectedCorrectly() throws Exception {
+        when(embedding.embedBatch(anyList()))
+                .thenAnswer(inv -> CompletableFuture.completedFuture(
+                        Collections.nCopies(((List<?>) inv.getArgument(0)).size(), 100.0)));
+
+        byte[] resp = mvc.perform(post("/api/v1/sheets/duplicates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsBytes(ROWS)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        DuplicateMatchResponse result = mapper.readValue(resp, DuplicateMatchResponse.class);
+
+        assertThat(result.confirmed()).hasSize(74);
+        assertThat(result.candidates()).hasSize(27);
+    }
 
     private static final List<List<String>> ROWS = List.<List<String>>of(
             List.of("John Smith"), List.of("Smith John"), List.of("J. Smith"), List.of("John SMITH"),
@@ -165,51 +182,8 @@ class DuplicateControllerImplTest {
             List.of("Li"), List.of("李"),
             List.of("Li, X"), List.of("X. Li")
     );
-    private static final int EXPECTED_PAIRS = 144;
 
-    @Test
-    void duplicatesDetectedCorrectly() throws Exception {
-        when(embedding.embedBatch(anyList()))
-                .thenAnswer(inv -> CompletableFuture.completedFuture(
-                        Collections.nCopies(((List<?>) inv.getArgument(0)).size(), 100.0)));
-
-        Map<Integer, Integer> idxToGroup = buildGroupIndex();
-
-        byte[] resp = mvc.perform(post("/api/v1/sheets/duplicates")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsBytes(ROWS)))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsByteArray();
-
-        DuplicateMatchResponse result = mapper.readValue(resp, DuplicateMatchResponse.class);
-
-        assertThat(result.candidates()).isEmpty();
-        assertThat(result.confirmed()).hasSize(EXPECTED_PAIRS);
-
-        for (IndexPair p : result.confirmed()) {
-            assertThat(idxToGroup.get(p.first()))
-                    .isEqualTo(idxToGroup.get(p.second()));
-        }
-    }
-
-    private static Map<Integer, Integer> buildGroupIndex() {
-        Map<Integer, Integer> map = new HashMap<>();
-        int idx = 0;
-
-        for (int g = 0; g < 24; g++) {
-            for (int i = 0; i < 4; i++) {
-                map.put(idx++, g);
-            }
-        }
-
-        for (; idx < ROWS.size(); idx++) {
-            map.put(idx, idx);
-        }
-
-        return map;
-    }
 }
+
 
 

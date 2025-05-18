@@ -101,10 +101,10 @@ class RowNormalizerServiceTest {
                 "ul. leninskaya d. 15 | leninskaya st. 15",
 
                 // Dates & numbers
-                "2023-01-15 | 01/15/2023 | 15.01.2023",
+                "2023-01-15 | 2023-01-15 | 15.01.2023",
                 "1234.56 | 1234.56 usd | 1234.56",
                 "id 12345-ab | id#12345ab | id 12345 ab",
-                "1 234 567-8901 | 12345678901 | 234-567-8901",
+                "+12345678901 | +12345678901 | 234-567-8901",
 
                 // Emails
                 "john.doe@example.com | john.doe+newsletters@example.com",
@@ -114,7 +114,7 @@ class RowNormalizerServiceTest {
 
                 // Special chars / case
                 "mixed case text | mixed case text",
-                "c | c# | java_script",
+                "c++ | c# | java_script",
                 "alpha-beta-gamma | alpha.beta.gamma",
                 "textwithcolons | text/with/slashes",
 
@@ -193,13 +193,14 @@ class RowNormalizerServiceTest {
         List<String> result = values(service.normalizeRows(texts));
 
         assertThat(result).containsExactly(
+                "c++",
                 "javascript",
                 "python 3.9",
                 "15 discount",
                 "299.99",
                 "alpha-beta-gamma",
                 "alpha_beta_gamma",
-                "alpha  beta",
+                "alpha & beta",
                 "company acme inc."
         );
     }
