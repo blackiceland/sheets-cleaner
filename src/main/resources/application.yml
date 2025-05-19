@@ -1,4 +1,11 @@
-spring.application.name: sheets-data-cleaner
+spring:
+  application:
+    name: sheets-data-cleaner
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          public-key-location: classpath:jwt/dev-public.pem
 
 server:
   port: 8081

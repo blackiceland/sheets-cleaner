@@ -6,11 +6,11 @@ services:
     ports:
       - "5000:5000"
 
-  cleaner:
-    image: sheets-data-cleaner:latest
-    environment:
-      EMBEDDING_API_URL: http://similarity:5000
-    depends_on:
-      - similarity
-    ports:
-      - "8080:8080"
+#  cleaner:
+#    image: sheets-data-cleaner:latest
+#    environment:
+#      EMBEDDING_API_URL: http://similarity:5000
+#    depends_on:
+#      - similarity
+#    ports:
+#      - "8080:8080"
