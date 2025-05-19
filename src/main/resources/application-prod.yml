@@ -6,7 +6,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          public-key-location: ${JWT_PUBLIC_KEY_LOCATION}
+          public-key-location: "${JWT_PUBLIC_KEY_LOCATION}"
 
 logging:
   level:
