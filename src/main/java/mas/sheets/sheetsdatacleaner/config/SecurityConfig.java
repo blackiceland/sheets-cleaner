@@ -8,6 +8,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 
 @Configuration
 @EnableWebSecurity
@@ -19,10 +20,15 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health", "/actuator/liveness").permitAll()
+                        .requestMatchers("/actuator/health").permitAll()
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth2 ->
-                        oauth2.jwt(Customizer.withDefaults()));
+                .headers(h -> {
+                    h.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'"));
+                    h.contentTypeOptions(Customizer.withDefaults());
+                    h.addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", "interest-cohort=()"));
+                })
+                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
+
         return http.build();
     }
 }

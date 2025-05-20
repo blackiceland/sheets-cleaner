@@ -8,8 +8,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.util.List;
 
 @Configuration
@@ -19,16 +17,6 @@ public class SimilarityScorerConfig {
     @Qualifier("heuristicScorers")
     public List<SimilarityScorer> heuristicScorers(TokenSetRatioScorer tokenSet, LevenshteinScorer levenshtein, JaroWinklerScorer jaroWinklerScorer) {
         return List.of(tokenSet, levenshtein, jaroWinklerScorer);
-    }
-
-    @Bean
-    public HttpClient httpClient() {
-        return HttpClient.newHttpClient();
-    }
-
-    @Bean
-    public URI similarityApiUri() {
-        return URI.create("http://localhost:5000/similarity");
     }
 }
 

@@ -2,90 +2,78 @@ spring:
   application:
     name: sheets-data-cleaner
 
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:prod}
+
   security:
     oauth2:
       resourceserver:
         jwt:
-          public-key-location: "classpath:jwt/dev-public.pem"
+          public-key-location: ${JWT_PUBLIC_KEY_LOCATION}
+
+embedding.api.base-url: ${EMBEDDING_BASE_URL}
 
 server:
   port: 8081
 
   tomcat:
-    max-http-form-post-size: 15MB       # строкой или в кавычках
+    max-http-form-post-size: 8MB
     threads:
-      max: 30                           # было max-threads
-      min-spare: 10                     # было min-spare-threads
+      max: 30
+      min-spare: 10
     accept-count: 50
 
 management:
-  server:
-    port: 8082
   endpoints:
     web:
       exposure:
         include: health,info,prometheus,configprops
+
   metrics:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+
     tags:
       application: ${spring.application.name}
 
-embedding:
-  api:
-    base-url: http://embedding:5000/similarity
-
 logging:
   level:
-    root: INFO
-    mas.sheets.sheetsdatacleaner: DEBUG          # ← ваш пакет
+    root: ${LOG_LEVEL_ROOT:INFO}
+    mas.sheets.sheetsdatacleaner: ${LOG_LEVEL_MAS:INFO}
 
 resilience4j:
   bulkhead:
     instances:
       embeddingApi:
-        maxConcurrentCalls: 8           # ≤ число CPU-ядер
+        maxConcurrentCalls: 8
         maxWaitDuration: 50ms
         writableStackTraceEnabled: false
-      duplicateDetector: # имя произвольное
-        maxConcurrentCalls: 20     # сколько findDuplicates можно держать одновременно
-        maxWaitDuration: 200ms     # запросы сверх лимита ждут 200 мс → 429
-
-  timelimiter:
-    instances:
-      embeddingApi:
-        timeoutDuration: 3s             # 2–3× p95 latency
-        cancelRunningFuture: true
-
-  ratelimiter:
-    instances:
-      embeddingApi:
-        limitForPeriod: 100             # 100 запросов
-        limitRefreshPeriod: 1s          # …каждую секунду
-        timeoutDuration: 0              # не ждём в очереди
-
-  circuitbreaker:
-    instances:
-      embeddingApi:
-        slidingWindowType: COUNT_BASED
-        slidingWindowSize: 20           # смотрим последние 20 вызовов
-        failureRateThreshold: 50        # ≥50 % ошибок → open
-        slowCallRateThreshold: 50
-        slowCallDurationThreshold: 2s
-        waitDurationInOpenState: 30s    # пауза перед half-open
-        permittedNumberOfCallsInHalfOpenState: 5
-        automaticTransitionFromOpenToHalfOpenEnabled: true
-        recordExceptions:
-          - java.lang.RuntimeException
-        ignoreExceptions:
-          - java.util.concurrent.CancellationException
+      duplicateDetector:
+        maxConcurrentCalls: 20
+        maxWaitDuration: 200ms
         writableStackTraceEnabled: false
 
-duplicate:
-  min-similarity: ${DUP_MIN_SIM:85}
-  batch-size: ${DUP_BATCH_SIZE:1000}
+  timelimiter.instances.embeddingApi:
+    timeoutDuration: 3s
+    cancelRunningFuture: true
 
-telegram:
-  bot:
-    token: ${TG_BOT_TOKEN}
+  ratelimiter.instances.embeddingApi:
+    limitForPeriod: 200
+    limitRefreshPeriod: 1s
+    timeoutDuration: 0
+
+  circuitbreaker.instances.embeddingApi:
+    slidingWindowType: COUNT_BASED
+    slidingWindowSize: 20
+    failureRateThreshold: 50
+    slowCallRateThreshold: 50
+    slowCallDurationThreshold: 2s
+    waitDurationInOpenState: 30s
+    permittedNumberOfCallsInHalfOpenState: 5
+    automaticTransitionFromOpenToHalfOpenEnabled: true
+    recordExceptions:
+      - java.lang.RuntimeException
+    ignoreExceptions:
+      - java.util.concurrent.CancellationException
+    writableStackTraceEnabled: false

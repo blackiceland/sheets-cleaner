@@ -26,9 +26,12 @@ import java.util.concurrent.ExecutorService;
 public class EmbeddingApiClient {
 
     private final ObjectMapper mapper;
+
     private final HttpClient http;
+
     @Qualifier("embeddingApiUri")
     URI api;
+
     private final ExecutorService embeddingExecutor;
 
     public EmbeddingApiClient(

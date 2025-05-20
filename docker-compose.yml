@@ -1,16 +1,16 @@
 services:
-  similarity:
-    build:
-      context: ./similarity
-    image: similarity:0.3.0
-    ports:
-      - "5000:5000"
+  cleaner:
+    image: sheets-data-cleaner:latest
+    environment:
+      JWT_PUBLIC_KEY_LOCATION: /run/secrets/jwt_pub
+      TG_BOT_TOKEN: /run/secrets/tg_bot_token
+      EMBEDDING_BASE_URL: http://similarity:5000/similarity
+    secrets:
+      - jwt_pub
+      - tg_bot_token
 
-#  cleaner:
-#    image: sheets-data-cleaner:latest
-#    environment:
-#      EMBEDDING_API_URL: http://similarity:5000
-#    depends_on:
-#      - similarity
-#    ports:
-#      - "8080:8080"
+secrets:
+  jwt_pub:
+    file: ./secrets/jwt_pub.pem
+  tg_bot_token:
+    file: ./secrets/tg_bot_token.txt

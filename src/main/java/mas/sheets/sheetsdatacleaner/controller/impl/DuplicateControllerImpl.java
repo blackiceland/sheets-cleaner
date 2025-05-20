@@ -11,8 +11,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import static mas.sheets.sheetsdatacleaner.util.CleanerUtils.DUPLICATES;
-
 @Slf4j
 @RestController
 @Validated
@@ -22,7 +20,7 @@ public class DuplicateControllerImpl implements DuplicateController {
     private final DuplicateDetectionService duplicateDetectionService;
 
     @Override
-    @PostMapping(value = DUPLICATES)
+    @PostMapping(value = "/api/v1/sheets/duplicates")
     public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
         log.info("Detecting duplicates for {} rows", request.rows());
 
