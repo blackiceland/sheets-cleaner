@@ -1,12 +1,12 @@
 global:
   scrape_interval: 15s
-  evaluation_interval: 15s
+  evaluation_interval: 30s
 
 scrape_configs:
   - job_name: cleaner
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["cleaner:8082"]
+      - targets: ["cleaner:8081"]
 
 alerting:
   alertmanagers:
@@ -14,6 +14,4 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 rule_files:
-  - /etc/prometheus/alerts.yml
-
-
+  - /etc/prometheus/rules/*.yml

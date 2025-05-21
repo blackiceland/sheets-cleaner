@@ -1,0 +1,7 @@
+route:
+  receiver: log_only
+
+receivers:
+  - name: log_only
+    webhook_configs:
+      - url: "http://localhost"   # заглушка, просто пишет в лог

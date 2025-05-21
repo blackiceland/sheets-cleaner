@@ -1,2 +1,0 @@
-flask==2.2.5
-sentence-transformers==2.3.1

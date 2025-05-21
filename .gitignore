@@ -32,6 +32,4 @@ build/
 ### VS Code ###
 .vscode/
 
-# secrets
-metrics/.env
-metrics/alertmanager.yml
+/docker/secrets/*

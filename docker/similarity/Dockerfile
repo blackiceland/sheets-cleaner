@@ -6,9 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# ---------- зависимости ----------
 COPY requirements.txt .
-
 RUN pip install --prefer-binary "numpy<2" && \
     pip install --prefer-binary \
         --index-url https://download.pytorch.org/whl/cpu \
@@ -17,15 +15,12 @@ RUN pip install --prefer-binary "numpy<2" && \
         torchaudio==2.1.0+cpu && \
     pip install --prefer-binary -r requirements.txt
 
-# ---------- заранее качаем модель (кэшируется в слое) ----------
 RUN python - <<'PY'
 from sentence_transformers import CrossEncoder
 CrossEncoder("cross-encoder/stsb-roberta-base")
 PY
 
-# ---------- приложение ----------
 COPY similarity_server.py .
 
 EXPOSE 5000
 CMD ["python", "similarity_server.py"]
-

@@ -1,16 +1,64 @@
 services:
   cleaner:
+    build: .
     image: sheets-data-cleaner:latest
+    networks: [stack]
+    ports: [ "8081:8081" ]
     environment:
-      JWT_PUBLIC_KEY_LOCATION: /run/secrets/jwt_pub
-      TG_BOT_TOKEN: /run/secrets/tg_bot_token
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DOCKER_COMPOSE_ENABLED: false
+      JWT_PUBLIC_KEY_LOCATION: classpath:jwt/dev-public.pem
+      TG_BOT_TOKEN: dummy
       EMBEDDING_BASE_URL: http://similarity:5000/similarity
-    secrets:
-      - jwt_pub
-      - tg_bot_token
+    depends_on: [similarity]
+    secrets: [jwt_pub, tg_bot_token]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  similarity:
+    build: ./docker/similarity
+    image: similarity:0.3.0
+    networks: [stack]
+    expose: ["5000"]
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    profiles: ["metrics"]
+    networks: [stack]
+    ports: ["9090:9090"]
+    volumes:
+      - ./docker/prometheus:/etc/prometheus:ro
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    profiles: ["metrics"]
+    networks: [stack]
+    ports: ["9093:9093"]
+    volumes:
+      - ./docker/alertmanager:/etc/alertmanager:ro
+
+  grafana:
+    image: grafana/grafana:12.0.0
+    profiles: ["metrics"]
+    networks: [stack]
+    ports: ["3000:3000"]
+    volumes:
+      - ./docker/grafana:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
 
 secrets:
   jwt_pub:
-    file: ./secrets/jwt_pub.pem
+    file: ./docker/secrets/jwt_pub.pem
   tg_bot_token:
-    file: ./secrets/tg_bot_token.txt
+    file: ./docker/secrets/tg_bot_token.txt
+
+volumes:
+  grafana-data: {}
+
+networks:
+  stack:
+    name: sheets-net
+    driver: bridge
