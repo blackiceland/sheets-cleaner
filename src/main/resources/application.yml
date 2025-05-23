@@ -11,7 +11,9 @@ spring:
         jwt:
           public-key-location: ${JWT_PUBLIC_KEY_LOCATION}
 
-embedding.api.base-url: ${EMBEDDING_BASE_URL}
+embedding:
+  api:
+    base-url: ${EMBEDDING_BASE_URL:http://localhost:5000/similarity}
 
 server:
   port: 8081
@@ -77,3 +79,37 @@ resilience4j:
     ignoreExceptions:
       - java.util.concurrent.CancellationException
     writableStackTraceEnabled: false
+
+
+minhash:
+  max-batch: ${MINHASH_MAX_BATCH:100000}
+  max-len: ${MINHASH_MAX_LEN:1000}
+  max-pairs-per-row: ${MINHASH_MAX_PAIRS_PER_ROW:30}
+
+  short-row-max-length: ${MINHASH_SHORT_ROW_MAX_LENGTH:20}
+  very-short-len: ${MINHASH_VERY_SHORT_LEN:18}
+  min-overlap-very-short: ${MINHASH_MIN_OVERLAP_VS:5}
+  min-ngram-overlap: ${MINHASH_MIN_NGRAM_OVERLAP:8}
+
+  lsh:
+    band-size: ${MINHASH_LSH_BAND_SIZE:4}
+    band-count: ${MINHASH_LSH_BAND_COUNT:32}
+    thr-short: ${MINHASH_LSH_THR_SHORT:0.22}
+    thr-long: ${MINHASH_LSH_THR_LONG:0.23}
+
+duplicate-detector:
+  hard-reject-short: ${DD_HARD_REJECT_SHORT:0.15}
+  hard-reject-long: ${DD_HARD_REJECT_LONG:0.25}
+  fast-reject-threshold: ${DD_FAST_REJECT_THRESHOLD:0.35}
+  fast-confirm-short: ${DD_FAST_CONFIRM_SHORT:0.65}
+  fast-confirm-long: ${DD_FAST_CONFIRM_LONG:0.55}
+  short-len-limit: ${DD_SHORT_LEN_LIMIT:30}
+  nn-len-limit: ${DD_NN_LEN_LIMIT:20}
+  nn-confirm-short: ${DD_NN_CONFIRM_SHORT:0.65}
+  nn-confirm-long: ${DD_NN_CONFIRM_LONG:0.78}
+  token-weight: ${DD_TOKEN_WEIGHT:0.60}
+  lev-weight: ${DD_LEV_WEIGHT:0.25}
+  jw-weight: ${DD_JW_WEIGHT:0.10}
+  neural-batch-size: ${DD_NEURAL_BATCH_SIZE:50}
+  max-in-flight: ${DD_MAX_IN_FLIGHT:4000}
+  worker-multiplier: ${DD_WORKER_MULTIPLIER:2}

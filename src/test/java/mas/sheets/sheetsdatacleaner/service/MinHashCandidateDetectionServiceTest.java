@@ -3,10 +3,10 @@ package mas.sheets.sheetsdatacleaner.service;
 import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.model.RowNorm;
-import mas.sheets.sheetsdatacleaner.service.impl.MinHashCandidateDetectionServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.*;
 
@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @Slf4j
+@ActiveProfiles("test")
 class MinHashCandidateDetectionServiceTest {
 
     @Autowired
@@ -104,8 +105,8 @@ class MinHashCandidateDetectionServiceTest {
                 "this.is:completely;different",
                 "كلمات لا علاقة لها ببعضها"
         );
-        Set<IndexPair> pairs =
-                new MinHashCandidateDetectionServiceImpl().generateCandidatePairs(rn(rows));
+
+        Set<IndexPair> pairs = generator.generateCandidatePairs(rn(rows));
 
         assertThat(pairs).isEmpty();
     }

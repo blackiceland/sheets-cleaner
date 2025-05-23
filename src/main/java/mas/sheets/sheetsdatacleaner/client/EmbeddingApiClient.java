@@ -57,25 +57,26 @@ public class EmbeddingApiClient {
                 HttpRequest req = HttpRequest.newBuilder(api)
                         .timeout(Duration.ofSeconds(10))
                         .header("Content-Type", "application/json")
+                        .header("Accept", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(body))
                         .build();
 
-                String json = http.send(req, HttpResponse.BodyHandlers.ofString()).body();
+                HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
 
-                return mapper.readValue(json, new TypeReference<>() {
+                if (resp.statusCode() != 200) {
+                    throw new IllegalStateException("Embedding API " + resp.statusCode() + ": " + resp.body());
+                }
+
+                return mapper.readValue(resp.body(), new TypeReference<List<Double>>() {
                 });
-
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         }, embeddingExecutor);
     }
 
-    @SuppressWarnings("unused")
     private CompletableFuture<List<Double>> fallback(List<Map<String, String>> payload, Throwable ex) {
-        log.warn("Embedding fallback: {}", ex.getMessage(), ex);
-
-        return CompletableFuture.completedFuture(
-                Collections.nCopies(payload.size(), 0.0));
+        log.warn("Embedding fallback: {}", ex.getMessage());
+        return CompletableFuture.completedFuture(Collections.nCopies(payload.size(), 0.0));
     }
 }

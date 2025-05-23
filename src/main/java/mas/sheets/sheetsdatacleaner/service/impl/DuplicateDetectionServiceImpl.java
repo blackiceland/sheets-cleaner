@@ -3,6 +3,7 @@ package mas.sheets.sheetsdatacleaner.service.impl;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import mas.sheets.sheetsdatacleaner.config.properties.DuplicateDetectorProps;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
@@ -27,45 +28,37 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
-    private static final double HARD_REJECT_SHORT = 0.15;
-    private static final double HARD_REJECT_LONG = 0.25;
-    private static final double FAST_REJECT_THRESHOLD = 0.35;
-    private static final double FAST_CONFIRM_SHORT = 0.65;
-    private static final double FAST_CONFIRM_LONG = 0.55;
-    private static final int SHORT_LEN_LIMIT = 30;
-    private static final int NN_LEN_LIMIT = 20;
-    private static final double NN_CONFIRM_SHORT = 0.65;
-    private static final double NN_CONFIRM_LONG = 0.78;
-
-    private static final double TOKEN_WEIGHT = 0.60;
-    private static final double LEV_WEIGHT = 0.25;
-    private static final double JW_WEIGHT = 0.10;
-
-    private static final int NEURAL_BATCH_SIZE = 50;
-    private static final int CORE = Runtime.getRuntime().availableProcessors();
-    private static final int MAX_IN_FLIGHT = 4_000;
-
+    private final DuplicateDetectorProps props;
     private final ExactDuplicateDetector exactDetector;
     private final MinHashCandidateDetectionService candidateGenerator;
     private final RowNormalizerService normalizer;
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
 
-    private final BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(MAX_IN_FLIGHT);
-    private final ExecutorService workers = new ThreadPoolExecutor(CORE * 2, CORE * 2, 0L, TimeUnit.SECONDS, queue);
-    private final ExecutorService neuralPool = Executors.newFixedThreadPool(Math.min(4, CORE));
+    private final ExecutorService workers;
+    private final ExecutorService neuralPool;
 
     public DuplicateDetectionServiceImpl(
+            DuplicateDetectorProps props,
             ExactDuplicateDetector exactDetector,
             MinHashCandidateDetectionService candidateGenerator,
             RowNormalizerService normalizer,
             @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
             NeuralSimilarityService neuralService) {
+
+        this.props = props;
         this.exactDetector = exactDetector;
         this.candidateGenerator = candidateGenerator;
         this.normalizer = normalizer;
         this.scorers = scorers;
         this.neuralService = neuralService;
+
+        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(props.maxInFlight());
+
+        int core = Runtime.getRuntime().availableProcessors();
+        int pool = Math.max(1, core * props.workerMultiplier());
+        this.workers = new ThreadPoolExecutor(pool, pool, 0L, TimeUnit.SECONDS, queue);
+        this.neuralPool = Executors.newFixedThreadPool(Math.min(4, core));
     }
 
     @PreDestroy
@@ -106,15 +99,19 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 try {
                     PairEval ev = evaluatePair(p, restRows);
 
-                    double hardThr = (ev.maxLen < 15) ? HARD_REJECT_SHORT : HARD_REJECT_LONG;
+                    double hardThr = (ev.maxLen < 15)
+                            ? props.hardRejectShort()
+                            : props.hardRejectLong();
 
-                    if (ev.weightedScore <= hardThr)
-                        return;
+                    if (ev.weightedScore <= hardThr) return;
 
-                    double confirmThr = (ev.maxLen < SHORT_LEN_LIMIT) ? FAST_CONFIRM_SHORT : FAST_CONFIRM_LONG;
+                    double confirmThr = (ev.maxLen < props.shortLenLimit())
+                            ? props.fastConfirmShort()
+                            : props.fastConfirmLong();
+
                     if (ev.weightedScore >= confirmThr) {
                         probable.add(mapOriginal(p, restIdx));
-                    } else if (ev.weightedScore > FAST_REJECT_THRESHOLD) {
+                    } else if (ev.weightedScore > props.fastRejectThreshold()) {
                         toNeural.add(ev);
                     }
                 } finally {
@@ -158,21 +155,22 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             else if (s instanceof JaroWinklerScorer) jw = s.calculateScore(left, right);
         }
 
-        double weighted = TOKEN_WEIGHT * token + LEV_WEIGHT * lev + JW_WEIGHT * jw;
-        int maxLen = Math.max(left.length(), right.length());
+        double weighted = props.tokenWeight() * token
+                + props.levWeight() * lev
+                + props.jwWeight() * jw;
 
-        return new PairEval(pair, weighted, maxLen);
+        return new PairEval(pair, weighted, Math.max(left.length(), right.length()));
     }
 
-    private void runNeuralStage(List<PairEval> batchList,
+    private void runNeuralStage(List<PairEval> batch,
                                 List<RowNorm> rows,
                                 List<Integer> originalIdx,
                                 Set<IndexPair> probable) {
         AtomicInteger confirmedByNN = new AtomicInteger();
 
-        for (int i = 0; i < batchList.size(); i += NEURAL_BATCH_SIZE) {
-            int to = Math.min(i + NEURAL_BATCH_SIZE, batchList.size());
-            List<PairEval> slice = batchList.subList(i, to);
+        for (int i = 0; i < batch.size(); i += props.neuralBatchSize()) {
+            int to = Math.min(i + props.neuralBatchSize(), batch.size());
+            List<PairEval> slice = batch.subList(i, to);
 
             Runnable r = () -> {
                 List<Pair<String, String>> q = slice.stream()
@@ -186,7 +184,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 for (int k = 0; k < slice.size(); k++) {
                     PairEval ev = slice.get(k);
                     double score = scores.getOrDefault(q.get(k), 0.0);
-                    double thr = (ev.maxLen < NN_LEN_LIMIT) ? NN_CONFIRM_SHORT : NN_CONFIRM_LONG;
+                    double thr = (ev.maxLen < props.nnLenLimit())
+                            ? props.nnConfirmShort()
+                            : props.nnConfirmLong();
 
                     if (score >= thr) {
                         probable.add(mapOriginal(ev.pair, originalIdx));
@@ -198,7 +198,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             CompletableFuture.runAsync(r, neuralPool).join();
         }
 
-        log.info("NN confirmed {} pairs ({} evaluated)", confirmedByNN.get(), batchList.size());
+        log.info("NN confirmed {} pairs ({} evaluated)", confirmedByNN.get(), batch.size());
     }
 
     private IndexPair mapOriginal(IndexPair p, List<Integer> idx) {

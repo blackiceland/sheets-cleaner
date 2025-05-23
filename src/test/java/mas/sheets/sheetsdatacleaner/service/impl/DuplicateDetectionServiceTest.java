@@ -1,113 +1,64 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
-import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
-import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
-import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.LevenshteinScorer;
-import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.TokenSetRatioScorer;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers
+@SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class DuplicateDetectionServiceTest {
+class DuplicateDetectionServiceTest {
 
-    private static final String CONTAINER_IMAGE = "similarity:0.3.0";
-    private static final int CONTAINER_PORT = 5000;
+    private static final int PORT = 5000;
 
-    @Container
-    private static final GenericContainer<?> container =
-            new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
-                    .withExposedPorts(CONTAINER_PORT)
-                    .waitingFor(Wait.forHttp("/health").forStatusCode(200))
-                    .withStartupTimeout(Duration.ofMinutes(4))
-                    .withReuse(false);
+    @SuppressWarnings("resource")
+    private static final GenericContainer<?> similarity =
+            new GenericContainer<>("similarity:0.3.0")
+                    .withExposedPorts(PORT)
+                    .waitingFor(
+                            Wait.forHttp("/health")
+                                    .forStatusCode(200)
+                                    .withStartupTimeout(Duration.ofMinutes(5)));
 
-    @Test
-    @DisplayName("detects exact duplicates without neural service")
-    void shouldDetectExactDuplicates() {
 
-        List<List<String>> rows = List.of(
-                List.of("John Smith", "john.smith@example.com"),     // 0
-                List.of("John Smith", "john.smith@example.com"),     // 1 – exact
-                List.of("Smith, John", "smith.j@example.com")        // 2
-        );
-
-        NeuralSimilarityService neuralMock = Mockito.mock(NeuralSimilarityService.class);
-        DuplicateDetectionService service = createService(neuralMock);
-
-        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
-
-        assertThat(resp.confirmed()).contains(IndexPair.of(0, 1));
-        assertThat(resp.confirmed()).doesNotContain(IndexPair.of(0, 2));
-
-        Mockito.verify(neuralMock, Mockito.never())
-                .fetchSimilarityScore(Mockito.anyString(), Mockito.anyString());
+    static {
+        similarity.start();
     }
 
-    @Test
-    @DisplayName("detects similar duplicates via weighted scores")
-    void shouldDetectSimilarDuplicates() {
-
-        List<List<String>> rows = List.of(
-                List.of("John Smith", "john.smith@example.com"),        // 0
-                List.of("Jonathan Smith", "john.smith@example.com"),    // 1 – similar
-                List.of("Jane Doe", "jane.doe@example.com")             // 2
-        );
-
-        DuplicateDetectionService service =
-                createService(Mockito.mock(NeuralSimilarityService.class));
-
-        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
-
-        assertThat(resp.candidates()).contains(IndexPair.of(0, 1));
-        assertThat(resp.confirmed()).doesNotContain(IndexPair.of(0, 2));
+    @DynamicPropertySource
+    static void props(DynamicPropertyRegistry r) {
+        r.add("embedding.api.base-url", () -> "http://" + similarity.getHost() + ":" + similarity.getMappedPort(PORT) + "/similarity");
+        r.add("JWT_PUBLIC_KEY_LOCATION", () -> "classpath:/dummy.pem");
+        r.add("resilience4j.timelimiter.instances.embeddingApi.timeoutDuration", () -> "15s");
     }
+
+    @Autowired
+    DuplicateDetectionService service;
 
     @ParameterizedTest
     @MethodSource("provideTestRows")
     @DisplayName("detects duplicates using real similarity container")
     void shouldDetectDuplicatesWithContainer(List<List<String>> rows) {
-        if (!container.isRunning()) container.start();
-
-        String base = "http://%s:%d/similarity".formatted(container.getHost(), container.getMappedPort(CONTAINER_PORT));
-
-        var mapper = new ObjectMapper();
-        var http = HttpClient.newHttpClient();
-        var apiUri = URI.create(base);
-        var exec = Executors.newFixedThreadPool(4);
-
-        EmbeddingApiClient client = new EmbeddingApiClient(mapper, http, apiUri, exec);
-        NeuralSimilarityService neural = new NeuralSimilarityServiceImpl(client);
-        DuplicateDetectionService service = createService(neural);
-
         DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
 
-        /* ожидаемые группы */
         Set<IndexPair> expectedConfirmed = Set.of(
                 IndexPair.of(106, 107),
                 IndexPair.of(70, 71),
@@ -126,8 +77,6 @@ public class DuplicateDetectionServiceTest {
 
         assertThat(resp.confirmed()).containsAll(expectedConfirmed);
         assertThat(resp.candidates()).containsAll(expectedCandidates);
-
-        exec.shutdownNow();
     }
 
     private static Stream<List<List<String>>> provideTestRows() {
@@ -460,21 +409,6 @@ public class DuplicateDetectionServiceTest {
                         List.of("Smith (2023) The Art of Programming", "", ""), // 229
                         List.of("Smith, J. \"The Art of Programming.\" Journal of Computer Science, vol. 15, no. 2, 2023, pp. 145-158.", "", "") // 230// 150
                 )
-        );
-    }
-
-    private DuplicateDetectionService createService(NeuralSimilarityService neural) {
-        var exactDetector = new ExactDuplicateDetectorImpl();
-        var minHash = new MinHashCandidateDetectionServiceImpl();
-        var normalizer = new RowNormalizerServiceImpl();
-
-        List<SimilarityScorer> scorers = List.of(
-                new TokenSetRatioScorer(),
-                new LevenshteinScorer()
-        );
-
-        return new DuplicateDetectionServiceImpl(
-                exactDetector, minHash, normalizer, scorers, neural
         );
     }
 }

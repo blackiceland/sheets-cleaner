@@ -1,19 +1,24 @@
+version: "3.9"
+name: sheets-cleaner
+
 services:
   cleaner:
     build: .
     image: sheets-data-cleaner:latest
-    networks: [stack]
+    networks: [ stack ]
     ports: [ "8081:8081" ]
     environment:
       SPRING_PROFILES_ACTIVE: dev
-      SPRING_DOCKER_COMPOSE_ENABLED: false
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
       JWT_PUBLIC_KEY_LOCATION: classpath:jwt/dev-public.pem
       TG_BOT_TOKEN: dummy
       EMBEDDING_BASE_URL: http://similarity:5000/similarity
-    depends_on: [similarity]
-    secrets: [jwt_pub, tg_bot_token]
+    depends_on:
+      similarity:
+        condition: service_healthy
+    secrets: [ jwt_pub, tg_bot_token ]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -21,42 +26,49 @@ services:
   similarity:
     build: ./docker/similarity
     image: similarity:0.3.0
-    networks: [stack]
-    expose: ["5000"]
+    networks: [ stack ]
+    expose: [ "5000" ]
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/metrics" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   prometheus:
     image: prom/prometheus:v2.52.0
-    profiles: ["metrics"]
-    networks: [stack]
-    ports: ["9090:9090"]
+    profiles: [ "metrics" ]
+    networks: [ stack ]
+    ports: [ "9090:9090" ]
     volumes:
-      - ./docker/prometheus:/etc/prometheus:ro
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/rules:/etc/prometheus/rules:ro
 
   alertmanager:
     image: prom/alertmanager:v0.27.0
-    profiles: ["metrics"]
-    networks: [stack]
-    ports: ["9093:9093"]
+    profiles: [ "metrics" ]
+    networks: [ stack ]
+    ports: [ "9093:9093" ]
     volumes:
-      - ./docker/alertmanager:/etc/alertmanager:ro
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
 
   grafana:
     image: grafana/grafana:12.0.0
-    profiles: ["metrics"]
-    networks: [stack]
-    ports: ["3000:3000"]
+    profiles: [ "metrics" ]
+    networks: [ stack ]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports: [ "3000:3000" ]
     volumes:
-      - ./docker/grafana:/etc/grafana/provisioning:ro
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana-data:/var/lib/grafana
 
 secrets:
-  jwt_pub:
-    file: ./docker/secrets/jwt_pub.pem
-  tg_bot_token:
-    file: ./docker/secrets/tg_bot_token.txt
+  jwt_pub: { file: ./docker/secrets/jwt_pub.pem }
+  tg_bot_token: { file: ./docker/secrets/tg_bot_token.txt }
 
 volumes:
-  grafana-data: {}
+  grafana-data: { }
 
 networks:
   stack:

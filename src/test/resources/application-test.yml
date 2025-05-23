@@ -1,0 +1,13 @@
+spring:
+  profiles:
+    active: test
+
+embedding:
+  api:
+    base-url: http://localhost:5001/similarity
+
+resilience4j:
+  timelimiter:
+    instances:
+      embeddingApi:
+        timeoutDuration: 15s
