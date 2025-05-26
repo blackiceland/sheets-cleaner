@@ -1,10 +1,10 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
-import it.unimi.dsi.fastutil.ints.*;
-import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntIterator;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import lombok.extern.slf4j.Slf4j;
-import mas.sheets.sheetsdatacleaner.config.properties.MinHashProps;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.model.RowNorm;
 import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
@@ -18,12 +18,16 @@ import java.util.stream.IntStream;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDetectionService {
 
-    private final MinHashProps props;
-
     private static final int SIGNATURE_SIZE = 128;
+    private static final int SHORT_ROW_MAX_LENGTH = 20;
+    private static final int VERY_SHORT_LEN = 18;
+    private static final int MIN_OVERLAP_VERY_SHORT = 5;
+    private static final int MIN_NGRAM_OVERLAP = 8;
+    private static final int MAX_BATCH = 100_000;
+    private static final int MAX_LEN = 1_000;
+    private static final int MAX_PAIRS_PER_ROW = 30;
     private static final int HASH_MASK = (1 << 24) - 1;
     private static final int[] SEED = new int[SIGNATURE_SIZE];
 
@@ -32,31 +36,17 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         for (int i = 0; i < SIGNATURE_SIZE; i++) SEED[i] = r.nextInt();
     }
 
-    private record LshParams(int bandSize, int bandCount, double thrShort, double thrLong) { }
-
-    private final AtomicReference<LshParams> params = new AtomicReference<>();
-
-    @PostConstruct
-    void init() {
-        params.set(new LshParams(
-                props.lsh().bandSize(),
-                props.lsh().bandCount(),
-                props.lsh().thrShort(),
-                props.lsh().thrLong()));
+    private record LshParams(int bandSize, int bandCount, double thrShort, double thrLong) {
     }
+
+    private static final LshParams DEFAULT_PARAMS = new LshParams(4, SIGNATURE_SIZE / 4, 0.22, 0.23);
+    private final AtomicReference<LshParams> params = new AtomicReference<>(DEFAULT_PARAMS);
 
     @Override
     public Set<IndexPair> generateCandidatePairs(List<RowNorm> rows) {
         if (rows == null || rows.isEmpty()) return Collections.emptySet();
-        if (rows.size() > props.maxBatch()) throw new IllegalArgumentException("Batch too large");
-
-        if (params.get().bandSize() != props.lsh().bandSize()) {
-            params.set(new LshParams(
-                    props.lsh().bandSize(),
-                    props.lsh().bandCount(),
-                    props.lsh().thrShort(),
-                    props.lsh().thrLong()));
-        }
+        if (rows.size() > MAX_BATCH) throw new IllegalArgumentException("Batch too large");
+        if (params.get() == DEFAULT_PARAMS) autocalibrate(rows);
 
         BitSet noisy;
         if (rows.size() < 200) {
@@ -88,7 +78,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                 String raw = rows.get(i).value();
                 if (raw == null) raw = "";
                 raw = Normalizer.normalize(raw, Normalizer.Form.NFKC);
-                if (raw.length() > props.maxLen()) raw = raw.substring(0, props.maxLen());
+                if (raw.length() > MAX_LEN) raw = raw.substring(0, MAX_LEN);
 
                 int effLen = raw.replaceAll("[^\\p{L}\\p{N}]", "").length();
 
@@ -130,10 +120,10 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             int sz = list.size();
             for (int i = 0; i < sz; i++) {
                 int a = arr[i];
-                if (pairCnt[a] >= props.maxPairsPerRow()) continue;
+                if (pairCnt[a] >= MAX_PAIRS_PER_ROW) continue;
                 for (int j = i + 1; j < sz; j++) {
                     int b = arr[j];
-                    if (pairCnt[b] >= props.maxPairsPerRow()) continue;
+                    if (pairCnt[b] >= MAX_PAIRS_PER_ROW) continue;
 
                     if (!sameAcronym(buf[a], buf[b]) && !lenCompatible(buf[a], buf[b])) continue;
 
@@ -143,7 +133,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
                         out.add(IndexPair.of(a, b));
 
-                        if (++pairCnt[a] >= props.maxPairsPerRow()) break;
+                        if (++pairCnt[a] >= MAX_PAIRS_PER_ROW) break;
                         pairCnt[b]++;
                     }
                 }
@@ -232,11 +222,11 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         }
 
         int base = Math.min(a.len, b.len);
-        int dynMin = (base <= 40) ? props.minNgramOverlap()
-                : Math.max(props.minNgramOverlap(), (int) Math.ceil(base / 4.0));
+        int dynMin = (base <= 40) ? MIN_NGRAM_OVERLAP
+                : Math.max(MIN_NGRAM_OVERLAP, (int) Math.ceil(base / 4.0));
 
-        int minOverlap = Math.min(a.len, b.len) < props.veryShortLen()
-                ? props.minOverlapVeryShort()
+        int minOverlap = Math.min(a.len, b.len) < VERY_SHORT_LEN
+                ? MIN_OVERLAP_VERY_SHORT
                 : dynMin;
 
         if (inter < minOverlap) return false;
@@ -260,8 +250,8 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
     private double threshold(int lenA, int lenB, LshParams p) {
         int m = Math.min(lenA, lenB);
         if (m < 5) return p.thrShort();
-        if (m >= props.shortRowMaxLength()) return p.thrLong();
-        double k = (double) (m - 5) / (props.shortRowMaxLength() - 5);
+        if (m >= SHORT_ROW_MAX_LENGTH) return p.thrLong();
+        double k = (double) (m - 5) / (SHORT_ROW_MAX_LENGTH - 5);
         return p.thrShort() - k * (p.thrShort() - p.thrLong());
     }
 
@@ -276,7 +266,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             sigs.add(buildSignature(
                     collectTrigrams(rows.get(rnd.nextInt(total)).value()), new BitSet(0)));
 
-        int bestBand = props.lsh().bandSize();
+        int bestBand = 4;
         double bestΔ = Double.MAX_VALUE;
         for (int cand : new int[]{4, 5, 6, 8}) {
             int bandCnt = SIGNATURE_SIZE / cand;
@@ -302,9 +292,8 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         }
 
-        double sThr = props.lsh().thrShort();
-        double lThr = props.lsh().thrLong();
-        if (bestBand > props.lsh().bandSize()) {
+        double sThr = 0.22, lThr = 0.23;
+        if (bestBand > 4) {
             sThr += 0.03;
             lThr += 0.03;
         }

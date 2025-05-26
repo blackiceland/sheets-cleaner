@@ -1,0 +1,14 @@
+spring:
+  docker:
+    compose:
+      enabled: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          public-key-location: classpath:jwt/test-public.pem
+
+embedding:
+  api:
+    base-url: http://similarity:5000/similarity

@@ -1,64 +1,53 @@
 package mas.sheets.sheetsdatacleaner.similarity.scorer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
 import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
-import mas.sheets.sheetsdatacleaner.service.impl.NeuralSimilarityServiceImpl;
-import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.MethodOrderer.DisplayName;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.time.Duration;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-@Tag("integration")
+@SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestMethodOrder(DisplayName.class)
+@ActiveProfiles("test")
 class NeuralSimilarityServiceTest {
 
-    private static final String CONTAINER_IMAGE = "similarity:0.3.0";
-    private static final int CONTAINER_PORT = 5000;
+    private static final int PORT = 5000;
 
-    private GenericContainer<?> container;
+    @SuppressWarnings("resource")
+    private static final GenericContainer<?> similarity =
+            new GenericContainer<>("similarity:0.3.0")
+                    .withExposedPorts(PORT)
+                    .waitingFor(
+                            Wait.forHttp("/health")
+                                    .forStatusCode(200)
+                                    .withStartupTimeout(Duration.ofMinutes(5)));
+
+
+    static {
+        similarity.start();
+    }
+
+    @DynamicPropertySource
+    static void props(DynamicPropertyRegistry r) {
+        r.add("embedding.api.base-url", () -> "http://" + similarity.getHost() + ":" + similarity.getMappedPort(PORT) + "/similarity");
+        r.add("resilience4j.timelimiter.instances.embeddingApi.timeoutDuration", () -> "15s");
+    }
+
+    @Autowired
     private NeuralSimilarityService service;
-
-    @BeforeAll
-    void startContainer() {
-        container = new GenericContainer<>(DockerImageName.parse(CONTAINER_IMAGE))
-                .withExposedPorts(CONTAINER_PORT)
-                .waitingFor(Wait.forHttp("/health").forStatusCode(200))
-                .withStartupTimeout(Duration.ofMinutes(3));
-
-        container.start();
-
-        String baseUrl = "http://%s:%d".formatted(container.getHost(), container.getMappedPort(CONTAINER_PORT));
-
-        ObjectMapper mapper = new ObjectMapper();
-        HttpClient http = HttpClient.newHttpClient();
-        URI apiUri = URI.create(baseUrl + "/similarity");
-        ExecutorService exec = Executors.newFixedThreadPool(4);
-
-        EmbeddingApiClient client = new EmbeddingApiClient(mapper, http, apiUri, exec);
-
-        service = new NeuralSimilarityServiceImpl(client);
-    }
-
-    @AfterAll
-    void stopContainer() {
-        container.stop();
-    }
 
     @ParameterizedTest(name = "#{index}: \"{0}\" vs \"{1}\" ≈ {2}")
     @MethodSource("cases")

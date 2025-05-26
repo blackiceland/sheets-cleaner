@@ -10,6 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@ActiveProfiles("test")
 class DuplicateDetectionServiceTest {
 
     private static final int PORT = 5000;
@@ -45,7 +47,6 @@ class DuplicateDetectionServiceTest {
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
         r.add("embedding.api.base-url", () -> "http://" + similarity.getHost() + ":" + similarity.getMappedPort(PORT) + "/similarity");
-        r.add("JWT_PUBLIC_KEY_LOCATION", () -> "classpath:/dummy.pem");
         r.add("resilience4j.timelimiter.instances.embeddingApi.timeoutDuration", () -> "15s");
     }
 

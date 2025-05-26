@@ -1,7 +1,6 @@
 package mas.sheets.sheetsdatacleaner.controller.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import mas.sheets.sheetsdatacleaner.client.EmbeddingApiClient;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import org.junit.jupiter.api.Test;
@@ -10,21 +9,21 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 
-import java.util.Collections;
+import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@AutoConfigureMockMvc
+@AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
 class DuplicateControllerImplTest {
 
@@ -34,15 +33,30 @@ class DuplicateControllerImplTest {
     @Autowired
     ObjectMapper mapper;
 
-    @MockitoBean
-    EmbeddingApiClient embedding;
+    private static final int PORT = 5000;
+
+    @SuppressWarnings("resource")
+    private static final GenericContainer<?> similarity =
+            new GenericContainer<>("similarity:0.3.0")
+                    .withExposedPorts(PORT)
+                    .waitingFor(
+                            Wait.forHttp("/health")
+                                    .forStatusCode(200)
+                                    .withStartupTimeout(Duration.ofMinutes(5)));
+
+
+    static {
+        similarity.start();
+    }
+
+    @DynamicPropertySource
+    static void props(DynamicPropertyRegistry r) {
+        r.add("embedding.api.base-url", () -> "http://" + similarity.getHost() + ":" + similarity.getMappedPort(PORT) + "/similarity");
+        r.add("resilience4j.timelimiter.instances.embeddingApi.timeoutDuration", () -> "15s");
+    }
 
     @Test
     void duplicatesDetectedCorrectly() throws Exception {
-        when(embedding.embedBatch(anyList()))
-                .thenAnswer(inv -> CompletableFuture.completedFuture(
-                        Collections.nCopies(((List<?>) inv.getArgument(0)).size(), 100.0)));
-
         DuplicateMatchRequest request = new DuplicateMatchRequest(ROWS);
 
         byte[] resp = mvc.perform(post("/api/v1/sheets/duplicates")
@@ -61,10 +75,6 @@ class DuplicateControllerImplTest {
 
     @Test
     void emptyRows() throws Exception {
-        when(embedding.embedBatch(anyList()))
-                .thenAnswer(inv -> CompletableFuture.completedFuture(
-                        Collections.nCopies(((List<?>) inv.getArgument(0)).size(), 100.0)));
-
         DuplicateMatchRequest request = new DuplicateMatchRequest(List.of());
 
         mvc.perform(post("/api/v1/sheets/duplicates")

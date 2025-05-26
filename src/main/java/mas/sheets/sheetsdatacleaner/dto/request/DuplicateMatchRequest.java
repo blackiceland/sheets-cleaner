@@ -8,4 +8,5 @@ public record DuplicateMatchRequest(
 
         @Size(max = 10_000)
         List<List<String>> rows
+
 ) {}
