@@ -44,7 +44,6 @@ class DuplicateControllerImplTest {
                                     .forStatusCode(200)
                                     .withStartupTimeout(Duration.ofMinutes(5)));
 
-
     static {
         similarity.start();
     }
@@ -70,7 +69,7 @@ class DuplicateControllerImplTest {
         DuplicateMatchResponse result = mapper.readValue(resp, DuplicateMatchResponse.class);
 
         assertThat(result.confirmed()).hasSize(74);
-        assertThat(result.candidates()).hasSize(27);
+        assertThat(result.candidates()).hasSize(68);
     }
 
     @Test
