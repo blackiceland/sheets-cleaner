@@ -2,6 +2,9 @@ spring:
   application:
     name: sheets-data-cleaner
 
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:prod}
 
@@ -17,6 +20,7 @@ embedding:
 
 server:
   port: 8081
+  shutdown: graceful
 
   tomcat:
     max-http-form-post-size: 8MB
@@ -32,10 +36,11 @@ management:
         include: health,info,prometheus,configprops
 
   metrics:
+    enable:
+      executor.queue.remaining: true
     distribution:
       percentiles-histogram:
         http.server.requests: true
-
     tags:
       application: ${spring.application.name}
 
@@ -56,36 +61,40 @@ resilience4j:
         maxWaitDuration: 200ms
         writableStackTraceEnabled: false
 
-  timelimiter.instances.embeddingApi:
-    timeoutDuration: 3s
-    cancelRunningFuture: true
+  timelimiter:
+    instances:
+      embeddingApi:
+        timeoutDuration: 3s
+        cancelRunningFuture: true
 
-  ratelimiter.instances.embeddingApi:
-    limitForPeriod: 200
-    limitRefreshPeriod: 1s
-    timeoutDuration: 0
+  ratelimiter:
+    instances:
+      embeddingApi:
+        limitForPeriod: 200
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0
 
-  circuitbreaker.instances.embeddingApi:
-    slidingWindowType: COUNT_BASED
-    slidingWindowSize: 20
-    failureRateThreshold: 50
-    slowCallRateThreshold: 50
-    slowCallDurationThreshold: 2s
-    waitDurationInOpenState: 30s
-    permittedNumberOfCallsInHalfOpenState: 5
-    automaticTransitionFromOpenToHalfOpenEnabled: true
-    recordExceptions:
-      - java.lang.RuntimeException
-    ignoreExceptions:
-      - java.util.concurrent.CancellationException
-    writableStackTraceEnabled: false
-
+  circuitbreaker:
+    instances:
+      embeddingApi:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        failureRateThreshold: 50
+        slowCallRateThreshold: 50
+        slowCallDurationThreshold: 2s
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.lang.RuntimeException
+        ignoreExceptions:
+          - java.util.concurrent.CancellationException
+        writableStackTraceEnabled: false
 
 minhash:
   max-batch: ${MINHASH_MAX_BATCH:100000}
   max-len: ${MINHASH_MAX_LEN:1000}
   max-pairs-per-row: ${MINHASH_MAX_PAIRS_PER_ROW:30}
-
   short-row-max-length: ${MINHASH_SHORT_ROW_MAX_LENGTH:20}
   very-short-len: ${MINHASH_VERY_SHORT_LEN:18}
   min-overlap-very-short: ${MINHASH_MIN_OVERLAP_VS:5}

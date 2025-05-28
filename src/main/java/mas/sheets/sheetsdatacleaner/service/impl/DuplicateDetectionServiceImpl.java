@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.config.properties.DuplicateDetectorProps;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.exception.TooManyRequestsException;
 import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.model.RowNorm;
@@ -16,6 +17,7 @@ import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.LevenshteinScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.TokenSetRatioScorer;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -34,8 +36,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private final RowNormalizerService normalizer;
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
-
-    private final ExecutorService workers;
+    private final ThreadPoolTaskExecutor workers;
     private final ExecutorService neuralPool;
 
     public DuplicateDetectionServiceImpl(
@@ -44,7 +45,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             MinHashCandidateDetectionService candidateGenerator,
             RowNormalizerService normalizer,
             @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
-            NeuralSimilarityService neuralService) {
+            NeuralSimilarityService neuralService,
+            @Qualifier("workPool") ThreadPoolTaskExecutor workers) {
 
         this.props = props;
         this.exactDetector = exactDetector;
@@ -52,12 +54,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         this.normalizer = normalizer;
         this.scorers = scorers;
         this.neuralService = neuralService;
-
-        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(props.maxInFlight());
+        this.workers = workers;
 
         int core = Runtime.getRuntime().availableProcessors();
-        int pool = Math.max(1, core * props.workerMultiplier());
-        this.workers = new ThreadPoolExecutor(pool, pool, 0L, TimeUnit.SECONDS, queue);
         this.neuralPool = Executors.newFixedThreadPool(Math.min(4, core));
     }
 
@@ -122,7 +121,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             try {
                 workers.execute(job);
             } catch (RejectedExecutionException ex) {
-                job.run();
+                throw new TooManyRequestsException();
             }
         }
 
