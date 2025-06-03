@@ -12,7 +12,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          public-key-location: ${JWT_PUBLIC_KEY_LOCATION}
+          issuer-uri: https://dev-rwjc4dah5ucs6nj8.us.auth0.com/
 
 embedding:
   api:
