@@ -4,7 +4,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -14,7 +13,6 @@ import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -33,7 +31,7 @@ public class SecurityConfig {
                 .securityMatcher(new AntPathRequestMatcher("/api/**", "OPTIONS"))
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll());
         return http.build();
     }
 
@@ -44,15 +42,9 @@ public class SecurityConfig {
                 .securityMatcher("/actuator/**")
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
+                .authorizeHttpRequests(a -> a
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-                        .requestMatchers("/actuator/prometheus/**").authenticated()
-                        .anyRequest().authenticated())
-                .headers(h -> {
-                    h.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'"));
-                    h.addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", "interest-cohort=()"));
-                })
-                .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
+                        .anyRequest().authenticated());
         return http.build();
     }
 
@@ -64,9 +56,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, "/api/**").permitAll()
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(a -> a.anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
         return http.build();
     }
@@ -82,7 +72,6 @@ public class SecurityConfig {
         cfg.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Client-Version"));
         cfg.setAllowCredentials(false);
-
         UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
         src.registerCorsConfiguration("/**", cfg);
         return src;
@@ -94,12 +83,9 @@ public class SecurityConfig {
             @Value("${security.jwt.audience:https://sheets-cleaner.api}") String audience) {
 
         NimbusJwtDecoder decoder = JwtDecoders.fromIssuerLocation(issuer);
-
         OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(audience);
-        OAuth2TokenValidator<Jwt> withDefaults =
-                new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefault(), audienceValidator);
-
-        decoder.setJwtValidator(withDefaults);
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefault(), audienceValidator));
         return decoder;
     }
 }
