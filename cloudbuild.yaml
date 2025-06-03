@@ -2,7 +2,8 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 steps:
-  - name: gcr.io/cloud-builders/mvn:3.9.6-openjdk-21
+  - name: docker.io/library/maven:3.9.6-eclipse-temurin-21
+    entrypoint: mvn
     args:
       - "-B"
       - "clean"
