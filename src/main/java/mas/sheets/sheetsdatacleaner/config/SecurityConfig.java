@@ -1,19 +1,26 @@
 package mas.sheets.sheetsdatacleaner.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
-@Profile("dev")
 @EnableWebSecurity
 public class SecurityConfig {
 
@@ -25,17 +32,58 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health/**").permitAll()
-                        .requestMatchers("/actuator/prometheus/**").permitAll()
+                        .requestMatchers("/actuator/health/**",
+                                "/actuator/prometheus/**").permitAll()
                         .anyRequest().authenticated())
                 .headers(h -> {
-                    h.contentSecurityPolicy(csp -> csp
-                            .policyDirectives("default-src 'none'"));
-                    h.addHeaderWriter(
-                            new StaticHeadersWriter("Permissions-Policy", "interest-cohort=()"));
+                    h.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'"));
+                    h.addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", "interest-cohort=()"));
                 })
-                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
-
+                .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
         return http.build();
+    }
+
+    @Bean
+    @Order(2)
+    SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/api/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(Customizer.withDefaults())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
+        return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration cfg = new CorsConfiguration();
+        cfg.setAllowedOrigins(List.of(
+                "https://script.google.com",
+                "https://docs.google.com",
+                "http://localhost:5173"
+        ));
+        cfg.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Client-Version"));
+        cfg.setAllowCredentials(false);
+        UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
+        src.registerCorsConfiguration("/**", cfg);
+        return src;
+    }
+
+    @Bean
+    public JwtDecoder jwtDecoder(
+            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer,
+            @Value("${security.jwt.audience:https://sheets-cleaner.api}") String audience) {
+
+        NimbusJwtDecoder decoder = JwtDecoders.fromIssuerLocation(issuer);
+
+        OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(audience);
+        OAuth2TokenValidator<Jwt> withDefaults =
+                new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefault(), audienceValidator);
+
+        decoder.setJwtValidator(withDefaults);
+        return decoder;
     }
 }

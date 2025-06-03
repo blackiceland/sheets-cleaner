@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.config.properties.DuplicateDetectorProps;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.exception.TooManyRequestsException;
 import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.model.RowNorm;
@@ -16,6 +17,7 @@ import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.LevenshteinScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.TokenSetRatioScorer;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -34,8 +36,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private final RowNormalizerService normalizer;
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
-
-    private final ExecutorService workers;
+    private final ThreadPoolTaskExecutor workers;
     private final ExecutorService neuralPool;
 
     public DuplicateDetectionServiceImpl(
@@ -44,7 +45,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             MinHashCandidateDetectionService candidateGenerator,
             RowNormalizerService normalizer,
             @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
-            NeuralSimilarityService neuralService) {
+            NeuralSimilarityService neuralService,
+            @Qualifier("workPool") ThreadPoolTaskExecutor workers) {
 
         this.props = props;
         this.exactDetector = exactDetector;
@@ -52,12 +54,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         this.normalizer = normalizer;
         this.scorers = scorers;
         this.neuralService = neuralService;
-
-        BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(props.maxInFlight());
+        this.workers = workers;
 
         int core = Runtime.getRuntime().availableProcessors();
-        int pool = Math.max(1, core * props.workerMultiplier());
-        this.workers = new ThreadPoolExecutor(pool, pool, 0L, TimeUnit.SECONDS, queue);
         this.neuralPool = Executors.newFixedThreadPool(Math.min(4, core));
     }
 
@@ -71,7 +70,12 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
         List<RowNorm> normalized = normalizer.normalizeRows(request.rows());
+        log.info("stage=normalize rows={}", normalized.size());
+
         ExactDetectionResult exact = exactDetector.detect(normalized);
+        log.info("stage=exact duplicates={} remaining={}",
+                exact.duplicateGroups().stream().mapToInt(List::size).sum(),
+                exact.remainingRows().size());
 
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
         Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
@@ -87,12 +91,17 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         List<RowNorm> restRows = exact.remainingRows();
         List<Integer> restIdx = exact.originalIndexes();
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
+        log.info("stage=candidate pairs={}", pairs.size());
 
         if (pairs.isEmpty())
             return new DuplicateMatchResponse(confirmed, probable);
 
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(pairs.size());
+
+        AtomicInteger hardRejected = new AtomicInteger();
+        AtomicInteger fastRejected = new AtomicInteger();
+        AtomicInteger fastConfirmed = new AtomicInteger();
 
         for (IndexPair p : pairs) {
             Runnable job = () -> {
@@ -103,7 +112,10 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                             ? props.hardRejectShort()
                             : props.hardRejectLong();
 
-                    if (ev.weightedScore <= hardThr) return;
+                    if (ev.weightedScore <= hardThr) {
+                        hardRejected.incrementAndGet();
+                        return;
+                    }
 
                     double confirmThr = (ev.maxLen < props.shortLenLimit())
                             ? props.fastConfirmShort()
@@ -111,8 +123,10 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
                     if (ev.weightedScore >= confirmThr) {
                         probable.add(mapOriginal(p, restIdx));
+                        fastConfirmed.incrementAndGet();
                     } else if (ev.weightedScore > props.fastRejectThreshold()) {
                         toNeural.add(ev);
+                        fastRejected.incrementAndGet();
                     }
                 } finally {
                     latch.countDown();
@@ -122,7 +136,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             try {
                 workers.execute(job);
             } catch (RejectedExecutionException ex) {
-                job.run();
+                throw new TooManyRequestsException();
             }
         }
 
@@ -132,13 +146,13 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             Thread.currentThread().interrupt();
         }
 
+        log.info("stage=heuristic hardRejected={} fastRejected={} fastConfirmed={} toNeural={}",
+                hardRejected.get(), fastRejected.get(), fastConfirmed.get(), toNeural.size());
+
         if (!toNeural.isEmpty())
             runNeuralStage(toNeural, restRows, restIdx, probable);
 
-        log.info("duplicates: exact={}, nnConfirmed={}, probable={}",
-                confirmed.size(),
-                probable.size() - confirmed.size(),
-                probable.size());
+        log.info("stage=finish confirmed={} probable={}", confirmed.size(), probable.size());
 
         return new DuplicateMatchResponse(confirmed, probable);
     }
@@ -198,7 +212,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             CompletableFuture.runAsync(r, neuralPool).join();
         }
 
-        log.info("NN confirmed {} pairs ({} evaluated)", confirmedByNN.get(), batch.size());
+        log.info("stage=neural batch={} confirmedByNN={}", batch.size(), confirmedByNN.get());
     }
 
     private IndexPair mapOriginal(IndexPair p, List<Integer> idx) {
