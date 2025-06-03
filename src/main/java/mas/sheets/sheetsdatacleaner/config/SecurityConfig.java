@@ -33,16 +33,13 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // liveness / readiness открыты для Cloud Run
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-                        // метрики – только с токеном
                         .requestMatchers("/actuator/prometheus/**").authenticated()
                         .anyRequest().authenticated())
                 .headers(h -> {
                     h.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'"));
                     h.addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", "interest-cohort=()"));
                 })
-                // JWT-фильтр остаётся: он не срабатывает, если заголовка Authorization нет
                 .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
         return http.build();
     }
