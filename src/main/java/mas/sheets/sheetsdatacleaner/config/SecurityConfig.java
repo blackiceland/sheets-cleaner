@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -32,13 +33,16 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health/**",
-                                "/actuator/prometheus/**").permitAll()
+                        // liveness / readiness открыты для Cloud Run
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // метрики – только с токеном
+                        .requestMatchers("/actuator/prometheus/**").authenticated()
                         .anyRequest().authenticated())
                 .headers(h -> {
                     h.contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'"));
                     h.addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", "interest-cohort=()"));
                 })
+                // JWT-фильтр остаётся: он не срабатывает, если заголовка Authorization нет
                 .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
         return http.build();
     }
@@ -51,7 +55,10 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .authorizeHttpRequests(auth -> auth
+                        // даём pre-flight-запросам пройти без токена
+                        .requestMatchers(HttpMethod.OPTIONS, "/api/**").permitAll()
+                        .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
         return http.build();
     }
@@ -67,6 +74,7 @@ public class SecurityConfig {
         cfg.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Client-Version"));
         cfg.setAllowCredentials(false);
+
         UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
         src.registerCorsConfiguration("/**", cfg);
         return src;
