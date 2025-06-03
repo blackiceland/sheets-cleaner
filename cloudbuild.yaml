@@ -2,7 +2,7 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 steps:
-  - name: gcr.io/cloud-builders/mvn
+  - name: gcr.io/cloud-builders/mvn:3.9.6-openjdk-21
     args:
       - "-B"
       - "clean"
