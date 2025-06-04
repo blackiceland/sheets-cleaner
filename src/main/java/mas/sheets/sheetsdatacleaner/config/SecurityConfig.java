@@ -7,7 +7,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -24,23 +23,19 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    @Bean
-    @Order(0)
+    @Bean @Order(0)
     SecurityFilterChain optionsChain(HttpSecurity http) throws Exception {
-        http
-                .securityMatcher(new AntPathRequestMatcher("/api/**", "OPTIONS"))
-                .csrf(AbstractHttpConfigurer::disable)
+        http.securityMatcher(new AntPathRequestMatcher("/api/**", "OPTIONS"))
+                .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(a -> a.anyRequest().permitAll());
         return http.build();
     }
 
-    @Bean
-    @Order(1)
+    @Bean @Order(1)
     SecurityFilterChain actuatorChain(HttpSecurity http) throws Exception {
-        http
-                .securityMatcher("/actuator/**")
-                .csrf(AbstractHttpConfigurer::disable)
+        http.securityMatcher("/actuator/**")
+                .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
@@ -48,12 +43,10 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    @Order(2)
+    @Bean @Order(2)
     SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
-        http
-                .securityMatcher("/api/**")
-                .csrf(AbstractHttpConfigurer::disable)
+        http.securityMatcher("/api/**")
+                .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a.anyRequest().authenticated())
@@ -66,11 +59,13 @@ public class SecurityConfig {
         CorsConfiguration cfg = new CorsConfiguration();
         cfg.setAllowedOriginPatterns(List.of(
                 "https://*.google.com",
+                "https://*.googleusercontent.com",
                 "http://localhost:*"
         ));
         cfg.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         cfg.addAllowedHeader("*");
         cfg.setAllowCredentials(false);
+
         UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
         src.registerCorsConfiguration("/**", cfg);
         return src;
