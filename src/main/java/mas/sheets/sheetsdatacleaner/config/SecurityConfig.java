@@ -64,15 +64,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
-        cfg.setAllowedOrigins(List.of(
-                "https://script.google.com",
-                "https://docs.google.com",
-                "https://script.googleusercontent.com",
-                "https://docs.googleusercontent.com",
-                "http://localhost:5173"
+        cfg.setAllowedOriginPatterns(List.of(
+                "https://*.google.com",
+                "http://localhost:*"
         ));
         cfg.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Client-Version", "Origin"));
+        cfg.addAllowedHeader("*");
         cfg.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
         src.registerCorsConfiguration("/**", cfg);
