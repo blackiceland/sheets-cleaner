@@ -6,10 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.config.properties.DuplicateDetectorProps;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.enums.ClusterKind;
 import mas.sheets.sheetsdatacleaner.exception.TooManyRequestsException;
-import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
-import mas.sheets.sheetsdatacleaner.model.IndexPair;
-import mas.sheets.sheetsdatacleaner.model.RowNorm;
+import mas.sheets.sheetsdatacleaner.model.*;
 import mas.sheets.sheetsdatacleaner.service.*;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.JaroWinklerScorer;
@@ -20,11 +19,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -75,26 +73,46 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         ExactDetectionResult exact = exactDetector.detect(normalized);
         log.info("stage=exact duplicates={} remaining={}",
                 exact.duplicateGroups().stream().mapToInt(List::size).sum(),
-                exact.remainingRows().size());
+                exact.remainRows().size());
 
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
-        Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
+        Set<IndexPair> probable  = ConcurrentHashMap.newKeySet();
 
-        for (List<Integer> g : exact.duplicateGroups())
-            for (int i = 0; i < g.size(); i++)
-                for (int j = i + 1; j < g.size(); j++)
+        for (List<Integer> g : exact.duplicateGroups()) {
+            for (int i = 0; i < g.size(); i++) {
+                for (int j = i + 1; j < g.size(); j++) {
                     confirmed.add(IndexPair.of(g.get(i), g.get(j)));
+                }
+            }
+        }
 
-        if (exact.remainingRows().isEmpty())
-            return new DuplicateMatchResponse(confirmed, probable);
+        List<RowNorm> restRows = new ArrayList<>(exact.remainRows());
+        List<Integer> restIdx  = new ArrayList<>(exact.remainIdxSrc());
 
-        List<RowNorm> restRows = exact.remainingRows();
-        List<Integer> restIdx = exact.originalIndexes();
+        if (!exact.metaByIdx().isEmpty()) {
+            Map<Integer, RowNorm> byId = normalized.stream()
+                    .collect(Collectors.toMap(RowNorm::idx, r -> r));
+            for (RowMeta m : exact.metaByIdx().values()) {
+                if (m.kind() == ClusterKind.CANON && !restIdx.contains(m.idx())) {
+                    RowNorm r = byId.get(m.idx());
+                    if (r != null) {
+                        restRows.add(r);
+                        restIdx.add(m.idx());
+                    }
+                }
+            }
+        }
+
+        if (restRows.isEmpty()) {
+            return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(exact.metaByIdx().values()));
+        }
+
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
         log.info("stage=candidate pairs={}", pairs.size());
 
-        if (pairs.isEmpty())
-            return new DuplicateMatchResponse(confirmed, probable);
+        if (pairs.isEmpty()) {
+            return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(exact.metaByIdx().values()));
+        }
 
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(pairs.size());
@@ -149,12 +167,13 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         log.info("stage=heuristic hardRejected={} fastRejected={} fastConfirmed={} toNeural={}",
                 hardRejected.get(), fastRejected.get(), fastConfirmed.get(), toNeural.size());
 
-        if (!toNeural.isEmpty())
+        if (!toNeural.isEmpty()) {
             runNeuralStage(toNeural, restRows, restIdx, probable);
+        }
 
         log.info("stage=finish confirmed={} probable={}", confirmed.size(), probable.size());
 
-        return new DuplicateMatchResponse(confirmed, probable);
+        return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(exact.metaByIdx().values()));
     }
 
     private PairEval evaluatePair(IndexPair pair, List<RowNorm> rows) {
@@ -188,7 +207,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
             Runnable r = () -> {
                 List<Pair<String, String>> q = slice.stream()
-                        .map(e -> Pair.of(rows.get(e.pair.first()).value(),
+                        .map(e -> Pair.of(
+                                rows.get(e.pair.first()).value(),
                                 rows.get(e.pair.second()).value()))
                         .toList();
 

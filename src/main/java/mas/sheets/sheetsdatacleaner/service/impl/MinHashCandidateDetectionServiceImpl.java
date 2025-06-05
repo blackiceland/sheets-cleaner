@@ -149,8 +149,6 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         });
 
-        log.info("{} rows processed", out.size());
-
         return out;
     }
 

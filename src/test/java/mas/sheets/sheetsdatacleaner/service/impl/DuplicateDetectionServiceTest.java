@@ -411,4 +411,39 @@ class DuplicateDetectionServiceTest {
                 )
         );
     }
+
+//    @ParameterizedTest
+//    @MethodSource("provideTestRowsProd")
+//    @DisplayName("detects duplicates using real similarity container")
+//    void shouldDetectDuplicatesWithContainerProd(List<List<String>> rows) {
+//        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
+//
+//        Set<IndexPair> expectedConfirmed = Set.of(
+//                IndexPair.of(106, 107),
+//                IndexPair.of(70, 71),
+//                IndexPair.of(20, 21),
+//                IndexPair.of(0, 1),
+//                IndexPair.of(102, 103)
+//        );
+//
+//        Set<IndexPair> expectedCandidates = Set.of(
+//        );
+//
+//        assertThat(resp.confirmed()).containsAll(expectedConfirmed);
+//        assertThat(resp.candidates()).containsAll(expectedCandidates);
+//    }
+//
+//
+//    private static Stream<List<List<String>>> provideTestRowsProd() {
+//        return Stream.of(
+//                List.of(
+//                        List.of("антон марков"), // 0
+//                        List.of("марков антон"), // 1
+//                        List.of("антон марков"), // 2
+//                        List.of("марков антон"), // 3
+//                        List.of("антон мурков"), // 4
+//                        List.of("марков антон сергеевич"), // 5
+//                        List.of("Марков Антон"), // 6
+//                        List.of("марков антон"))); // 7
+//    }
 }
