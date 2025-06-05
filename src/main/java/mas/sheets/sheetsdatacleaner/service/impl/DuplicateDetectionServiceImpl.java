@@ -8,7 +8,10 @@ import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.enums.ClusterKind;
 import mas.sheets.sheetsdatacleaner.exception.TooManyRequestsException;
-import mas.sheets.sheetsdatacleaner.model.*;
+import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
+import mas.sheets.sheetsdatacleaner.model.IndexPair;
+import mas.sheets.sheetsdatacleaner.model.RowMeta;
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
 import mas.sheets.sheetsdatacleaner.service.*;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.JaroWinklerScorer;
@@ -76,18 +79,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 exact.remainRows().size());
 
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
-        Set<IndexPair> probable  = ConcurrentHashMap.newKeySet();
+        Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
 
-        for (List<Integer> g : exact.duplicateGroups()) {
-            for (int i = 0; i < g.size(); i++) {
-                for (int j = i + 1; j < g.size(); j++) {
+        for (List<Integer> g : exact.duplicateGroups())
+            for (int i = 0; i < g.size(); i++)
+                for (int j = i + 1; j < g.size(); j++)
                     confirmed.add(IndexPair.of(g.get(i), g.get(j)));
-                }
-            }
-        }
 
         List<RowNorm> restRows = new ArrayList<>(exact.remainRows());
-        List<Integer> restIdx  = new ArrayList<>(exact.remainIdxSrc());
+        List<Integer> restIdx = new ArrayList<>(exact.remainIdxSrc());
 
         if (!exact.metaByIdx().isEmpty()) {
             Map<Integer, RowNorm> byId = normalized.stream()
@@ -103,16 +103,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             }
         }
 
-        if (restRows.isEmpty()) {
-            return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(exact.metaByIdx().values()));
-        }
+        ConcurrentHashMap<Integer, RowMeta> meta = new ConcurrentHashMap<>(exact.metaByIdx());
+
+        if (restRows.isEmpty())
+            return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
         log.info("stage=candidate pairs={}", pairs.size());
 
-        if (pairs.isEmpty()) {
-            return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(exact.metaByIdx().values()));
-        }
+        if (pairs.isEmpty())
+            return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
 
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(pairs.size());
@@ -142,6 +142,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                     if (ev.weightedScore >= confirmThr) {
                         probable.add(mapOriginal(p, restIdx));
                         fastConfirmed.incrementAndGet();
+                        updateMeta(meta, p, restIdx);
                     } else if (ev.weightedScore > props.fastRejectThreshold()) {
                         toNeural.add(ev);
                         fastRejected.incrementAndGet();
@@ -167,13 +168,12 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         log.info("stage=heuristic hardRejected={} fastRejected={} fastConfirmed={} toNeural={}",
                 hardRejected.get(), fastRejected.get(), fastConfirmed.get(), toNeural.size());
 
-        if (!toNeural.isEmpty()) {
-            runNeuralStage(toNeural, restRows, restIdx, probable);
-        }
+        if (!toNeural.isEmpty())
+            runNeuralStage(toNeural, restRows, restIdx, probable, meta);
 
         log.info("stage=finish confirmed={} probable={}", confirmed.size(), probable.size());
 
-        return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(exact.metaByIdx().values()));
+        return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
     }
 
     private PairEval evaluatePair(IndexPair pair, List<RowNorm> rows) {
@@ -181,16 +181,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         String right = rows.get(pair.second()).value();
 
         double token = 0, lev = 0, jw = 0;
-
         for (SimilarityScorer s : scorers) {
             if (s instanceof TokenSetRatioScorer) token = s.calculateScore(left, right);
             else if (s instanceof LevenshteinScorer) lev = s.calculateScore(left, right);
             else if (s instanceof JaroWinklerScorer) jw = s.calculateScore(left, right);
         }
 
-        double weighted = props.tokenWeight() * token
-                + props.levWeight() * lev
-                + props.jwWeight() * jw;
+        double weighted = props.tokenWeight() * token +
+                props.levWeight() * lev +
+                props.jwWeight() * jw;
 
         return new PairEval(pair, weighted, Math.max(left.length(), right.length()));
     }
@@ -198,7 +197,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private void runNeuralStage(List<PairEval> batch,
                                 List<RowNorm> rows,
                                 List<Integer> originalIdx,
-                                Set<IndexPair> probable) {
+                                Set<IndexPair> probable,
+                                ConcurrentHashMap<Integer, RowMeta> meta) {
+
         AtomicInteger confirmedByNN = new AtomicInteger();
 
         for (int i = 0; i < batch.size(); i += props.neuralBatchSize()) {
@@ -225,14 +226,34 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                     if (score >= thr) {
                         probable.add(mapOriginal(ev.pair, originalIdx));
                         confirmedByNN.incrementAndGet();
+                        updateMeta(meta, ev.pair, originalIdx);
                     }
                 }
             };
-
             CompletableFuture.runAsync(r, neuralPool).join();
         }
 
         log.info("stage=neural batch={} confirmedByNN={}", batch.size(), confirmedByNN.get());
+    }
+
+    private void updateMeta(ConcurrentHashMap<Integer, RowMeta> meta,
+                            IndexPair pair,
+                            List<Integer> restIdx) {
+
+        int idL = restIdx.get(pair.first());
+        int idR = restIdx.get(pair.second());
+
+        RowMeta l = meta.get(idL);
+        RowMeta r = meta.get(idR);
+
+        UUID cluster = (l != null) ? l.clusterId()
+                : (r != null) ? r.clusterId()
+                : UUID.randomUUID();
+
+        if (l == null)
+            meta.put(idL, new RowMeta(idL, cluster, ClusterKind.FUZZY));
+        if (r == null)
+            meta.put(idR, new RowMeta(idR, cluster, ClusterKind.FUZZY));
     }
 
     private IndexPair mapOriginal(IndexPair p, List<Integer> idx) {

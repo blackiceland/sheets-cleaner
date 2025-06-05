@@ -129,28 +129,28 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
                            String[] originalKey,
                            String[] canonicalKey,
                            DataType[] types) {
+
         for (List<Integer> bucket : buckets) {
-            if (bucket.size() < 2) {
-                continue;
-            }
+            if (bucket.size() < 2) continue;
+
             for (int i = 0; i < bucket.size(); i++) {
                 int a = bucket.get(i);
                 for (int j = i + 1; j < bucket.size(); j++) {
                     int b = bucket.get(j);
-                    if (types[a] != types[b]) {
-                        continue;
-                    }
-                    if (!jaccardAtLeastHalf(canonicalKey[a], canonicalKey[b])) {
-                        continue;
-                    }
-                    if (Math.abs(originalKey[a].length() - originalKey[b].length()) > 2) {
-                        continue;
-                    }
+
+                    if (types[a] != types[b]) continue;
+
+                    String[] toksA = canonicalKey[a].split(CANON_SEP);
+                    String[] toksB = canonicalKey[b].split(CANON_SEP);
+                    if (types[a] == DataType.PLAIN && toksA.length != toksB.length) continue;
+
+                    if (!jaccardAtLeastHalf(canonicalKey[a], canonicalKey[b])) continue;
+                    if (Math.abs(originalKey[a].length() - originalKey[b].length()) > 2) continue;
+
                     String s1 = NON_ALNUM.matcher(originalKey[a]).replaceAll("");
                     String s2 = NON_ALNUM.matcher(originalKey[b]).replaceAll("");
-                    if (levenshteinGt1(s1, s2)) {
-                        continue;
-                    }
+                    if (levenshteinGt1(s1, s2)) continue;
+
                     dsu.union(a, b);
                 }
             }

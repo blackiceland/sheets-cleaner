@@ -2,7 +2,9 @@ package mas.sheets.sheetsdatacleaner.service.impl;
 
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.enums.ClusterKind;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
+import mas.sheets.sheetsdatacleaner.model.RowMeta;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.TestInstance;
@@ -412,38 +414,56 @@ class DuplicateDetectionServiceTest {
         );
     }
 
-//    @ParameterizedTest
-//    @MethodSource("provideTestRowsProd")
-//    @DisplayName("detects duplicates using real similarity container")
-//    void shouldDetectDuplicatesWithContainerProd(List<List<String>> rows) {
-//        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
-//
-//        Set<IndexPair> expectedConfirmed = Set.of(
-//                IndexPair.of(106, 107),
-//                IndexPair.of(70, 71),
-//                IndexPair.of(20, 21),
-//                IndexPair.of(0, 1),
-//                IndexPair.of(102, 103)
-//        );
-//
-//        Set<IndexPair> expectedCandidates = Set.of(
-//        );
-//
-//        assertThat(resp.confirmed()).containsAll(expectedConfirmed);
-//        assertThat(resp.candidates()).containsAll(expectedCandidates);
-//    }
-//
-//
-//    private static Stream<List<List<String>>> provideTestRowsProd() {
-//        return Stream.of(
-//                List.of(
-//                        List.of("антон марков"), // 0
-//                        List.of("марков антон"), // 1
-//                        List.of("антон марков"), // 2
-//                        List.of("марков антон"), // 3
-//                        List.of("антон мурков"), // 4
-//                        List.of("марков антон сергеевич"), // 5
-//                        List.of("Марков Антон"), // 6
-//                        List.of("марков антон"))); // 7
-//    }
+    @ParameterizedTest
+    @MethodSource("provideTestRowsProd")
+    @DisplayName("duplicate detector returns clusters with FUZZY rows")
+    void shouldDetectClustersWithFuzzy(List<List<String>> rows) {
+        DuplicateMatchResponse resp =
+                service.findDuplicates(new DuplicateMatchRequest(rows));
+
+        // ─── confirmed (точные) ──────────────────────────────────────────────
+        Set<IndexPair> expectedConfirmed = Set.of(
+                IndexPair.of(0, 2),                      // «антон марков»
+                IndexPair.of(1, 3), IndexPair.of(1, 7),  // «марков антон»
+                IndexPair.of(3, 7)
+        );
+
+        assertThat(resp.confirmed()).containsAll(expectedConfirmed);
+
+        // ─── meta ────────────────────────────────────────────────────────────
+        List<RowMeta> meta = resp.meta();
+        assertThat(meta).hasSize(9);   // 1 CANON + 6 EXACT + 1 FUZZY
+
+        long canonCnt = meta.stream()
+                .filter(m -> m.kind() == ClusterKind.CANON).count();
+        long exactCnt = meta.stream()
+                .filter(m -> m.kind() == ClusterKind.EXACT).count();
+        long fuzzyCnt = meta.stream()
+                .filter(m -> m.kind() == ClusterKind.FUZZY).count();
+
+        assertThat(canonCnt).isEqualTo(1);
+        assertThat(exactCnt).isEqualTo(6);
+        assertThat(fuzzyCnt).isEqualTo(2);   // idx 4 «антон марковv»
+
+
+        // ─── FUZZY-пары присутствуют ────────────────────────────────────────
+        assertThat(resp.candidates()).isNotEmpty();
+    }
+
+    private static Stream<List<List<String>>> provideTestRowsProd() {
+        return Stream.of(
+                List.of(
+                        List.of("марков антон"),            // 0
+                        List.of("марков антон"),            // 1
+                        List.of("антон марков"),            // 2
+                        List.of("марков антон"),            // 3
+                        List.of("антон марковv"),           // 4
+                        List.of("марков антон сергеевич"),  // 5
+                        List.of("Марков Антон"),           // 6
+                        List.of("марков антон"),            // 7
+                        List.of("anton markov")             // 8
+                )
+        );
+    }
+
 }

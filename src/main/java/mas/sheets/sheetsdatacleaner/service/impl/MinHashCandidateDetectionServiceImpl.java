@@ -216,26 +216,26 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
         int inter = 0, i = 0, j = 0;
         while (i < a.ngrams.length && j < b.ngrams.length) {
-            if (a.ngrams[i] == b.ngrams[j]) {
-                inter++;
-                i++;
-                j++;
-            } else if (a.ngrams[i] < b.ngrams[j]) i++;
+            if (a.ngrams[i] == b.ngrams[j]) { inter++; i++; j++; }
+            else if (a.ngrams[i] < b.ngrams[j]) i++;
             else j++;
         }
+
+        double contain = (double) inter / Math.min(a.ngrams.length, b.ngrams.length);
+        if (contain >= 0.8) return true;
 
         int base = Math.min(a.len, b.len);
         int dynMin = (base <= 40) ? props.minNgramOverlap()
                 : Math.max(props.minNgramOverlap(), (int) Math.ceil(base / 4.0));
-
         int minOverlap = Math.min(a.len, b.len) < props.veryShortLen()
                 ? props.minOverlapVeryShort()
                 : dynMin;
-
         if (inter < minOverlap) return false;
 
         int union = a.ngrams.length + b.ngrams.length - inter;
-        return inter >= thr * union;
+        double jacc = (union == 0) ? 1.0 : (double) inter / union;
+
+        return jacc >= thr;
     }
 
     private boolean wordOverlap(String a, String b) {
