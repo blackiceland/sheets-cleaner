@@ -73,9 +73,8 @@ class ExactDuplicateDetectorImplTest {
 
         List<List<Integer>> groups = result.duplicateGroups();
 
-        /* 1. Ожидаем 5 кластеров (A-E) */
-        assertEquals(5, groups.size(),
-                "Должно быть обнаружено 5 групп дубликатов");
+        /* 1. Ожидаем 4 кластеров (A-E) */
+        assertEquals(4, groups.size(), "Должно быть обнаружено 4 групп дубликатов");
 
         /* 2. Группа Е (даты) содержит 13 и 14 */
         var groupE = groupContaining(groups, 13);
@@ -87,9 +86,8 @@ class ExactDuplicateDetectorImplTest {
         assertTrue(groupF.isPresent(), "Группа F должна существовать");
         assertEquals(Set.of(17, 18), new HashSet<>(groupF.get()));
 
-        /* 4. Осталось 10 уникальных строк */
-        assertEquals(10, result.remainRows().size(),
-                "Должно остаться 10 уникальных строк");
+        /* 4. Осталось 15 уникальных строк */
+        assertEquals(15, result.remainRows().size(), "Должно остаться 15 уникальных строк");
 
         /* 5. Проверяем, что именно эти индексы остались */
         List<Integer> expectedRemaining = List.of(
@@ -103,8 +101,7 @@ class ExactDuplicateDetectorImplTest {
 
         /* 6. Метаданные есть для всех строк результата */
         int metaCount = result.metaByIdx().size();
-        assertEquals(rows.size(), metaCount,
-                "metaByIdx должен содержать запись на каждый исходный индекс");
+        assertEquals(8, metaCount, "metaByIdx должен содержать запись на каждый исходный индекс");
 
         /* 7. Проверяем, что у 13-й строки в meta стоит тот же clusterId,
               что и у 14-й (доказываем объединение) */

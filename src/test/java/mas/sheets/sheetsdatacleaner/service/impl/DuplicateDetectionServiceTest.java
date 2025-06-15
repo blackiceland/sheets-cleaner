@@ -62,11 +62,11 @@ class DuplicateDetectionServiceTest {
         DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
 
         Set<IndexPair> expectedConfirmed = Set.of(
-                IndexPair.of(106, 107),
-                IndexPair.of(70, 71),
-                IndexPair.of(20, 21),
-                IndexPair.of(0, 1),
-                IndexPair.of(102, 103)
+                IndexPair.of(0, 20),    // «anton markov» ↔ «anton markov»
+                IndexPair.of(1, 21),    // «markov anton» ↔ «markov anton»
+                IndexPair.of(70, 71),   // даты 15.01.23 ↔ 15 .01.2023
+                IndexPair.of(102, 103), // url / e-mail
+                IndexPair.of(106, 107)  // «hello world» ↔ «HELLOWORLD»
         );
 
         Set<IndexPair> expectedCandidates = Set.of(
@@ -418,14 +418,13 @@ class DuplicateDetectionServiceTest {
     @MethodSource("provideTestRowsProd")
     @DisplayName("duplicate detector returns clusters with FUZZY rows")
     void shouldDetectClustersWithFuzzy(List<List<String>> rows) {
-        DuplicateMatchResponse resp =
-                service.findDuplicates(new DuplicateMatchRequest(rows));
+        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
 
         // ─── confirmed (точные) ──────────────────────────────────────────────
         Set<IndexPair> expectedConfirmed = Set.of(
-                IndexPair.of(0, 2),                      // «антон марков»
-                IndexPair.of(1, 3), IndexPair.of(1, 7),  // «марков антон»
-                IndexPair.of(3, 7)
+                IndexPair.of(1, 3),
+                IndexPair.of(3, 7),
+                IndexPair.of(1, 7)
         );
 
         assertThat(resp.confirmed()).containsAll(expectedConfirmed);
@@ -441,9 +440,9 @@ class DuplicateDetectionServiceTest {
         long fuzzyCnt = meta.stream()
                 .filter(m -> m.kind() == ClusterKind.FUZZY).count();
 
-        assertThat(canonCnt).isEqualTo(1);
-        assertThat(exactCnt).isEqualTo(6);
-        assertThat(fuzzyCnt).isEqualTo(2);   // idx 4 «антон марковv»
+        assertThat(canonCnt).isEqualTo(2);
+        assertThat(exactCnt).isEqualTo(5);
+        assertThat(fuzzyCnt).isEqualTo(2);
 
 
         // ─── FUZZY-пары присутствуют ────────────────────────────────────────

@@ -66,12 +66,10 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         });
 
         Map<String, List<Integer>> exactIdx = new HashMap<>();
-        Map<String, List<Integer>> canonIdx = new HashMap<>();
         Map<Integer, List<Integer>> hashIdx = new HashMap<>();
 
         for (int i = 0; i < n; i++) {
             exactIdx.computeIfAbsent(originalKey[i], k -> new ArrayList<>()).add(i);
-            canonIdx.computeIfAbsent(canonicalKey[i], k -> new ArrayList<>()).add(i);
             if (alnumHash[i] != EMPTY_HASH) {
                 hashIdx.computeIfAbsent(alnumHash[i], k -> new ArrayList<>()).add(i);
             }
@@ -79,7 +77,6 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
 
         DisjointSet dsu = new DisjointSet(n);
         unite(exactIdx.values(), dsu);
-        unite(canonIdx.values(), dsu);
         uniteHash(hashIdx.values(), dsu, originalKey, canonicalKey, types);
 
         Map<Integer, List<Integer>> groups = new HashMap<>();
@@ -114,13 +111,9 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
 
     private void unite(Collection<List<Integer>> buckets, DisjointSet dsu) {
         for (List<Integer> b : buckets) {
-            if (b.size() < 2) {
-                continue;
-            }
+            if (b.size() < 2) continue;
             int root = b.getFirst();
-            for (int j = 1; j < b.size(); j++) {
-                dsu.union(root, b.get(j));
-            }
+            for (int j = 1; j < b.size(); j++) dsu.union(root, b.get(j));
         }
     }
 
@@ -139,6 +132,12 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
                     int b = bucket.get(j);
 
                     if (types[a] != types[b]) continue;
+
+                    if (types[a] == DataType.PLAIN) {
+                        String normA = NON_ALNUM.matcher(originalKey[a]).replaceAll("").toLowerCase();
+                        String normB = NON_ALNUM.matcher(originalKey[b]).replaceAll("").toLowerCase();
+                        if (!normA.equals(normB)) continue;
+                    }
 
                     String[] toksA = canonicalKey[a].split(CANON_SEP);
                     String[] toksB = canonicalKey[b].split(CANON_SEP);
@@ -167,38 +166,25 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
                 inter++;
                 i++;
                 j++;
-            } else if (cmp < 0) {
-                i++;
-            } else {
-                j++;
-            }
+            } else if (cmp < 0) i++;
+            else j++;
         }
         int union = x.length + y.length - inter;
         return union == 0 || (double) inter / union >= 0.5;
     }
 
     private static DataType detectType(String row) {
-        if (row.isEmpty()) {
-            return DataType.PLAIN;
-        }
-        if (ISBN.matcher(row).find()) {
-            return DataType.ISBN;
-        }
-        if (HEX_HASH.matcher(row).find()) {
-            return DataType.HASH;
-        }
-        if (URL.matcher(row).matches()) {
-            return DataType.URL;
-        }
+        if (row.isEmpty()) return DataType.PLAIN;
+        if (ISBN.matcher(row).find()) return DataType.ISBN;
+        if (HEX_HASH.matcher(row).find()) return DataType.HASH;
+        if (URL.matcher(row).matches()) return DataType.URL;
         String digits = PHONE_DIGITS.matcher(row).replaceAll("");
         return digits.length() >= 10 ? DataType.PHONE : DataType.PLAIN;
     }
 
     private static boolean levenshteinGt1(String s1, String s2) {
         int len1 = s1.length(), len2 = s2.length();
-        if (Math.abs(len1 - len2) > 1) {
-            return true;
-        }
+        if (Math.abs(len1 - len2) > 1) return true;
         int edits = 0, i = 0, j = 0;
         while (i < len1 && j < len2) {
             if (s1.charAt(i) == s2.charAt(j)) {
@@ -206,14 +192,10 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
                 j++;
                 continue;
             }
-            if (++edits > 1) {
-                return true;
-            }
-            if (len1 > len2) {
-                i++;
-            } else if (len2 > len1) {
-                j++;
-            } else {
+            if (++edits > 1) return true;
+            if (len1 > len2) i++;
+            else if (len2 > len1) j++;
+            else {
                 i++;
                 j++;
             }
@@ -228,9 +210,7 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         DisjointSet(int n) {
             parent = new int[n];
             rank = new byte[n];
-            for (int i = 0; i < n; i++) {
-                parent[i] = i;
-            }
+            for (int i = 0; i < n; i++) parent[i] = i;
         }
 
         int find(int x) {
@@ -243,14 +223,10 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
 
         void union(int x, int y) {
             int rx = find(x), ry = find(y);
-            if (rx == ry) {
-                return;
-            }
-            if (rank[rx] < rank[ry]) {
-                parent[rx] = ry;
-            } else if (rank[rx] > rank[ry]) {
-                parent[ry] = rx;
-            } else {
+            if (rx == ry) return;
+            if (rank[rx] < rank[ry]) parent[rx] = ry;
+            else if (rank[rx] > rank[ry]) parent[ry] = rx;
+            else {
                 parent[ry] = rx;
                 rank[rx]++;
             }
