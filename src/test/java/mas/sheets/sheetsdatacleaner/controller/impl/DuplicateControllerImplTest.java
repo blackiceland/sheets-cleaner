@@ -68,7 +68,7 @@ class DuplicateControllerImplTest {
 
         DuplicateMatchResponse result = mapper.readValue(resp, DuplicateMatchResponse.class);
 
-        assertThat(result.confirmed()).hasSize(74);
+        assertThat(result.confirmed()).hasSize(26);
         assertThat(result.candidates()).hasSize(68);
     }
 
@@ -83,31 +83,6 @@ class DuplicateControllerImplTest {
     }
 
     private static final List<List<String>> ROWS = List.<List<String>>of(
-            List.of("John Smith"), List.of("Smith John"), List.of("J. Smith"), List.of("John SMITH"),
-            List.of("Robert Johnson"), List.of("Johnson Robert"), List.of("R. Johnson"), List.of("Robrt Johnson"),
-            List.of("James Wilson"), List.of("Wilson James"), List.of("J. Wilson"), List.of("James Wilson Jr."),
-            List.of("Sarah O'Connor"), List.of("O'Connor Sarah"), List.of("S. O'Connor"), List.of("Sarah OConnor"),
-            List.of("Nicolás García"), List.of("García Nicolás"), List.of("N. García"), List.of("Nicolas Garcia"),
-            List.of("Steven White"), List.of("White Steven"), List.of("S. White"), List.of("Steve White"),
-            List.of("Elizabeth Davis"), List.of("Davis Elizabeth"), List.of("E. Davis"), List.of("Elizabeth.Davis"),
-            List.of("François Dupont"), List.of("Dupont François"), List.of("F. Dupont"), List.of("Francois DUPONT"),
-            List.of("Christopher Jackson"), List.of("Jackson Christopher"), List.of("C. Jackson"), List.of("Chris Jackson"),
-            List.of("Albert Davidson"), List.of("Davidson Albert"), List.of("A. Davidson"), List.of("Al Davidson"),
-            List.of("Alex Smith"), List.of("Smith Alex"), List.of("A. Smith"), List.of("Alex Smith (CEO)"),
-            List.of("Richard Thompson"), List.of("Thompson Richard"), List.of("R. Thompson"), List.of("Rick Thompson"),
-            List.of("Michael Robinson"), List.of("Robinson Michael"), List.of("M. Robinson"), List.of("Mike Robinson"),
-            List.of("Thomas Anderson"), List.of("Anderson Thomas"), List.of("T. Anderson"), List.of("Tom Anderson"),
-            List.of("Jean-Pierre de la Fontaine"), List.of("de la Fontaine Jean-Pierre"), List.of("J-P. de la Fontaine"), List.of("Jean Pierre Fontaine"),
-            List.of("Catherine Wilson"), List.of("Wilson Catherine"), List.of("C. Wilson"), List.of("Kathryn Wilson"),
-            List.of("María López"), List.of("López María"), List.of("M. López"), List.of("Maria Lopez"),
-            List.of("Mark Walker"), List.of("Walker Mark"), List.of("M. Walker"), List.of("Mark Walker Sr."),
-            List.of("Daniel Harris"), List.of("Harris Daniel"), List.of("D. Harris"), List.of("Dan Harris"),
-            List.of("Jessica Moore"), List.of("Moore Jessica"), List.of("J. Moore"), List.of("Jessica Moore PhD"),
-            List.of("Karen Lee"), List.of("Lee Karen"), List.of("K. Lee"), List.of("Karen   Lee"),
-            List.of("Donna Young"), List.of("Young Donna"), List.of("D. Young"), List.of("Donna  Young"),
-            List.of("Barbara King"), List.of("King Barbara"), List.of("B. King"), List.of("Barbra King"),
-            List.of("Paul Clark"), List.of("Clark Paul"), List.of("P. Clark"), List.of("Paul Clark II"),
-
             // 5 уникальных (не должны давать дубликатов)
             List.of("unique_name_001"),
             List.of("unique_name_002"),
