@@ -72,11 +72,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
         List<RowNorm> normalized = normalizer.normalizeRows(request.rows());
         log.info("stage=normalize rows={}", normalized.size());
+        log.debug("normalize.rows={}", fmtRows(normalized));
 
         ExactDetectionResult exact = exactDetector.detect(normalized);
-        log.info("stage=exact duplicates={} remaining={}",
+        log.info("stage=exact groups={} duplicates={} remaining={}",
+                exact.duplicateGroups().size(),
                 exact.duplicateGroups().stream().mapToInt(List::size).sum(),
                 exact.remainRows().size());
+        exact.duplicateGroups().forEach(g ->
+                log.debug("exact.group={} rows={}", g, fmtRowsByIdx(normalized, g)));
+        log.debug("exact.remain={}", fmtRows(exact.remainRows()));
 
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
         Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
@@ -85,6 +90,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             for (int i = 0; i < g.size(); i++)
                 for (int j = i + 1; j < g.size(); j++)
                     confirmed.add(IndexPair.of(g.get(i), g.get(j)));
+
+        if (!confirmed.isEmpty())
+            log.debug("confirmed.exactPairs={}", fmtPairs(confirmed, normalized));
 
         List<RowNorm> restRows = new ArrayList<>(exact.remainRows());
         List<Integer> restIdx = new ArrayList<>(exact.remainIdxSrc());
@@ -110,6 +118,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
         log.info("stage=candidate pairs={}", pairs.size());
+        log.debug("candidates.pairs={}", fmtPairs(pairs, restRows));
 
         if (pairs.isEmpty())
             return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
@@ -125,6 +134,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             Runnable job = () -> {
                 try {
                     PairEval ev = evaluatePair(p, restRows);
+                    String l = restRows.get(p.first()).value();
+                    String r = restRows.get(p.second()).value();
 
                     double hardThr = (ev.maxLen < 15)
                             ? props.hardRejectShort()
@@ -132,6 +143,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
                     if (ev.weightedScore <= hardThr) {
                         hardRejected.incrementAndGet();
+                        log.debug("decision=hardReject pair={} score={} left='{}' right='{}'",
+                                p, ev.weightedScore, l, r);
                         return;
                     }
 
@@ -143,9 +156,17 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                         probable.add(mapOriginal(p, restIdx));
                         fastConfirmed.incrementAndGet();
                         updateMeta(meta, p, restIdx);
+                        log.debug("decision=fastConfirm pair={} score={} left='{}' right='{}'",
+                                p, ev.weightedScore, l, r);
                     } else if (ev.weightedScore > props.fastRejectThreshold()) {
                         toNeural.add(ev);
                         fastRejected.incrementAndGet();
+                        log.debug("decision=toNeural pair={} score={} left='{}' right='{}'",
+                                p, ev.weightedScore, l, r);
+                    } else {
+                        hardRejected.incrementAndGet();
+                        log.debug("decision=fastReject pair={} score={} left='{}' right='{}'",
+                                p, ev.weightedScore, l, r);
                     }
                 } finally {
                     latch.countDown();
@@ -167,11 +188,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         log.info("stage=heuristic hardRejected={} fastRejected={} fastConfirmed={} toNeural={}",
                 hardRejected.get(), fastRejected.get(), fastConfirmed.get(), toNeural.size());
+        log.debug("heuristic.fastConfirmed={}", fmtPairs(probable, normalized));
 
         if (!toNeural.isEmpty())
             runNeuralStage(toNeural, restRows, restIdx, probable, meta);
 
-        log.info("stage=finish confirmed={} probable={}", confirmed.size(), probable.size());
+        log.info("stage=finish confirmed={} probable={} meta={}",
+                confirmed.size(), probable.size(), meta.size());
+        log.debug("finish.confirmedPairs={}", fmtPairs(confirmed, normalized));
+        log.debug("finish.probablePairs={}", fmtPairs(probable, normalized));
+        log.debug("finish.meta={}", meta.values());
 
         return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
     }
@@ -191,6 +217,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 props.levWeight() * lev +
                 props.jwWeight() * jw;
 
+        log.debug("score {} «{}» / «{}» token={} lev={} jw={} weighted={}",
+                pair, left, right, token, lev, jw, weighted);
+
         return new PairEval(pair, weighted, Math.max(left.length(), right.length()));
     }
 
@@ -199,6 +228,10 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                                 List<Integer> originalIdx,
                                 Set<IndexPair> probable,
                                 ConcurrentHashMap<Integer, RowMeta> meta) {
+
+        log.debug("neural.input.size={} first10={}",
+                batch.size(), batch.stream().limit(10)
+                        .map(e -> pr(e.pair, rows)).toList());
 
         AtomicInteger confirmedByNN = new AtomicInteger();
 
@@ -227,6 +260,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                         probable.add(mapOriginal(ev.pair, originalIdx));
                         confirmedByNN.incrementAndGet();
                         updateMeta(meta, ev.pair, originalIdx);
+                        log.debug("decision=nnConfirm pair={} nnScore={} left='{}' right='{}'",
+                                ev.pair, score,
+                                rows.get(ev.pair.first()).value(),
+                                rows.get(ev.pair.second()).value());
+                    } else {
+                        log.debug("decision=nnReject pair={} nnScore={} left='{}' right='{}'",
+                                ev.pair, score,
+                                rows.get(ev.pair.first()).value(),
+                                rows.get(ev.pair.second()).value());
                     }
                 }
             };
@@ -258,6 +300,32 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
     private IndexPair mapOriginal(IndexPair p, List<Integer> idx) {
         return IndexPair.of(idx.get(p.first()), idx.get(p.second()));
+    }
+
+    private static String fmtRows(List<RowNorm> rows) {
+        return rows.stream()
+                .map(r -> "[" + r.idx() + "] «" + r.value() + "»")
+                .toList()
+                .toString();
+    }
+
+    private static String fmtRowsByIdx(List<RowNorm> all, List<Integer> idxs) {
+        return idxs.stream()
+                .map(i -> all.stream().filter(r -> r.idx() == i).findFirst().orElse(null))
+                .filter(Objects::nonNull)
+                .map(r -> "[" + r.idx() + "] «" + r.value() + "»")
+                .toList()
+                .toString();
+    }
+
+    private static String fmtPairs(Collection<IndexPair> pairs, List<RowNorm> rows) {
+        return pairs.stream().map(p -> pr(p, rows)).toList().toString();
+    }
+
+    private static String pr(IndexPair p, List<RowNorm> rows) {
+        String l = p.first()  < rows.size() ? rows.get(p.first()).value()  : "∅";
+        String r = p.second() < rows.size() ? rows.get(p.second()).value() : "∅";
+        return p + " -> «" + l + "» / «" + r + "»";
     }
 
     private record PairEval(IndexPair pair, double weightedScore, int maxLen) {

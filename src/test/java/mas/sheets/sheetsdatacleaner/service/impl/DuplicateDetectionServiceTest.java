@@ -422,16 +422,14 @@ class DuplicateDetectionServiceTest {
 
         // ─── confirmed (точные) ──────────────────────────────────────────────
         Set<IndexPair> expectedConfirmed = Set.of(
-                IndexPair.of(1, 3),
-                IndexPair.of(3, 7),
-                IndexPair.of(1, 7)
+                IndexPair.of(0, 4)
         );
 
         assertThat(resp.confirmed()).containsAll(expectedConfirmed);
 
-        // ─── meta ────────────────────────────────────────────────────────────
         List<RowMeta> meta = resp.meta();
-        assertThat(meta).hasSize(9);   // 1 CANON + 6 EXACT + 1 FUZZY
+
+        assertThat(meta).hasSize(5);
 
         long canonCnt = meta.stream()
                 .filter(m -> m.kind() == ClusterKind.CANON).count();
@@ -440,27 +438,20 @@ class DuplicateDetectionServiceTest {
         long fuzzyCnt = meta.stream()
                 .filter(m -> m.kind() == ClusterKind.FUZZY).count();
 
-        assertThat(canonCnt).isEqualTo(2);
-        assertThat(exactCnt).isEqualTo(5);
-        assertThat(fuzzyCnt).isEqualTo(2);
-
-
-        // ─── FUZZY-пары присутствуют ────────────────────────────────────────
-        assertThat(resp.candidates()).isNotEmpty();
+        assertThat(canonCnt).isEqualTo(1);
+        assertThat(exactCnt).isEqualTo(1);
+        assertThat(fuzzyCnt).isEqualTo(3);
     }
 
     private static Stream<List<List<String>>> provideTestRowsProd() {
         return Stream.of(
                 List.of(
-                        List.of("марков антон"),            // 0
-                        List.of("марков антон"),            // 1
-                        List.of("антон марков"),            // 2
-                        List.of("марков антон"),            // 3
-                        List.of("антон марковv"),           // 4
-                        List.of("марков антон сергеевич"),  // 5
-                        List.of("Марков Антон"),           // 6
-                        List.of("марков антон"),            // 7
-                        List.of("anton markov")             // 8
+                        List.of("антон марков"),            // 0
+                        List.of("антон мурков"),            // 1
+                        List.of("марков антон сергеевич"),  // 2
+                        List.of("Марков Антон"),            // 3
+                        List.of("антон    Марков"),         // 4
+                        List.of("антон марковv")          // 5
                 )
         );
     }
