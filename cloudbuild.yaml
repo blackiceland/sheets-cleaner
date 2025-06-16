@@ -32,5 +32,12 @@ steps:
       - "--platform=managed"
       - "--quiet"
 
+  - name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build","-t","gcr.io/$PROJECT_ID/similarity:0.3.0","./docker/similarity"]
+
+  - name: gcr.io/cloud-builders/docker
+    args: ["push","gcr.io/$PROJECT_ID/similarity:0.3.0"]
+
 images:
   - "gcr.io/$PROJECT_ID/cleaner:${SHORT_SHA}"
