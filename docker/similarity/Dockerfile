@@ -7,20 +7,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         torch==2.1.0+cpu torchvision==0.16.0+cpu torchaudio==2.1.0+cpu \
         -r requirements.txt
 
-FROM wheels AS model
+FROM python:3.10-slim AS model
+WORKDIR /build
+COPY --from=wheels /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 RUN python - <<'PY'
 from sentence_transformers import CrossEncoder
-
-ce = CrossEncoder("cross-encoder/stsb-roberta-base",
-                  tokenizer_args={"use_fast": False})
+ce = CrossEncoder("cross-encoder/stsb-roberta-base", tokenizer_args={"use_fast": False})
 ce.save("/model")
 PY
 
 FROM python:3.10-slim
 WORKDIR /app
-COPY --from=wheels /usr/local/lib/python3.10/site-packages \
-     /usr/local/lib/python3.10/site-packages
-COPY --from=model /model /app/model
+COPY --from=wheels /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=model  /model /app/model
 COPY similarity_server.py .
 ENV MODEL_PATH=/app/model \
     HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
