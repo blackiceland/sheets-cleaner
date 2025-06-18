@@ -1,23 +1,25 @@
-FROM python:3.10-slim AS wheels
-WORKDIR /deps
+FROM python:3.10-slim AS build
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
-RUN pip install --prefer-binary \
-        --extra-index-url https://download.pytorch.org/whl/cpu \
-        torch==2.1.0+cpu torchvision==0.16.0+cpu torchaudio==2.1.0+cpu \
-        -r requirements.txt
-
-FROM wheels AS model
-RUN python -c "from sentence_transformers import CrossEncoder; \
-               CrossEncoder('cross-encoder/stsb-roberta-base', tokenizer_args={'use_fast': False}).save('/model')"
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN python - <<'PY'
+import types, sys, torch
+tensor_stub = types.ModuleType("torch.distributed.tensor")
+sys.modules["torch.distributed.tensor"] = tensor_stub
+from sentence_transformers import CrossEncoder
+m = CrossEncoder("cross-encoder/ms-marco-MiniLM-L4-v2", tokenizer_args={"use_fast": False})
+m.save("/model")
+PY
 
 FROM python:3.10-slim
 WORKDIR /app
-COPY --from=wheels /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-COPY --from=model /model /app/model
+COPY --from=build /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=build /model /app/model
 COPY similarity_server.py .
-ENV MODEL_PATH=/app/model \
-    HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-    PYTHONUNBUFFERED=1
+ENV MODEL_PATH=/app/model HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONUNBUFFERED=1
+RUN adduser --disabled-password --gecos '' appuser
+USER appuser
 EXPOSE 5000
 HEALTHCHECK CMD curl -f http://localhost:5000/health || exit 1
-CMD ["python","similarity_server.py"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "similarity_server:app"]
