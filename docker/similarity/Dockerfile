@@ -9,8 +9,8 @@ RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 RUN python - <<'PY'
 from sentence_transformers import CrossEncoder
-model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L4-v2", tokenizer_args={"use_fast": False})
-model.save("/model")
+m = CrossEncoder("cross-encoder/ms-marco-MiniLM-L4-v2", tokenizer_args={"use_fast": False})
+m.save("/model")
 PY
 
 FROM python:3.10-slim
