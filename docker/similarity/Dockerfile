@@ -7,11 +7,7 @@ RUN apt-get update && apt-get install -y curl --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-RUN python - <<EOF
-from sentence_transformers import CrossEncoder
-m = CrossEncoder("cross-encoder/ms-marco-MiniLM-L4-v2", tokenizer_args={"use_fast": False})
-m.save("/model")
-EOF
+RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L4-v2', tokenizer_args={'use_fast': False}).save('/model')"
 
 FROM python:3.10-slim
 WORKDIR /app
