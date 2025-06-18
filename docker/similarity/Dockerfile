@@ -7,14 +7,15 @@ RUN apt-get update && apt-get install -y curl --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-RUN python - <<'PY'
+RUN python - <<EOF
 from sentence_transformers import CrossEncoder
-model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L4-v2", tokenizer_args={"use_fast": False})
-model.save("/model")
-PY
+m = CrossEncoder("cross-encoder/ms-marco-MiniLM-L4-v2", tokenizer_args={"use_fast": False})
+m.save("/model")
+EOF
 
 FROM python:3.10-slim
 WORKDIR /app
+
 COPY --from=build /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY --from=build /model /app/model
 COPY similarity_server.py .
