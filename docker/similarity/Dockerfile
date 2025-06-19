@@ -7,17 +7,7 @@ RUN apt-get update && apt-get install -y curl --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-RUN python - <<'PY'
-import types, sys, torch
-dist = types.ModuleType("torch.distributed"); dist.is_available = lambda: False
-sys.modules["torch.distributed"] = dist
-sys.modules["torch.distributed.rpc"] = types.ModuleType("torch.distributed.rpc")
-sys.modules["torch.distributed.tensor"] = types.ModuleType("torch.distributed.tensor")
-from sentence_transformers import CrossEncoder
-m = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2", tokenizer_args={"use_fast": False})
-m.model = torch.quantization.quantize_dynamic(m.model, {torch.nn.Linear}, dtype=torch.qint8)
-m.save("/model")
-PY
+RUN python -c "import types,sys,torch; dist=types.ModuleType('torch.distributed'); dist.is_available=lambda:False; sys.modules['torch.distributed']=dist; sys.modules['torch.distributed.rpc']=types.ModuleType('torch.distributed.rpc'); sys.modules['torch.distributed.tensor']=types.ModuleType('torch.distributed.tensor'); from sentence_transformers import CrossEncoder; m=CrossEncoder('cross-encoder/ms-marco-MiniLM-L6-v2',tokenizer_args={'use_fast':False}); m.model=torch.quantization.quantize_dynamic(m.model,{torch.nn.Linear},dtype=torch.qint8); m.save('/model')"
 
 FROM python:3.10-slim
 WORKDIR /app
