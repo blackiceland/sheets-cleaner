@@ -1,14 +1,11 @@
 from flask import Flask, request, jsonify
 from prometheus_flask_exporter import PrometheusMetrics
-import itertools, os, types, sys, torch
-
-tensor_stub = types.ModuleType("torch.distributed.tensor")
-sys.modules["torch.distributed.tensor"] = tensor_stub
-
 from sentence_transformers import CrossEncoder
+import itertools, os, torch
 
 app = Flask(__name__)
 metrics = PrometheusMetrics(app)
+
 model = CrossEncoder(os.getenv("MODEL_PATH", "/app/model"), tokenizer_args={"use_fast": False})
 model.model = torch.quantization.quantize_dynamic(model.model, {torch.nn.Linear}, dtype=torch.qint8)
 
