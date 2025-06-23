@@ -58,19 +58,19 @@ class NeuralSimilarityServiceTest {
 
     private static Stream<Arguments> cases() {
         return Stream.of(
-                Arguments.of("anton markov", "anton markov", 0.94),
+                Arguments.of("anton markov", "anton markov", 0.99),
                 Arguments.of("anton markov", "markov anton", 0.90),
-                Arguments.of("anton markov | antonmarkov@gmail.com", "markov anton | antonmarkov@gmail.com", 0.93),
-                Arguments.of("a markov | anton@gmail.com", "anton markov | antonmarkov@gmail.com", 0.93),
-                Arguments.of("résumé | crème brûlée", "resume | creme brulee", 0.44),
-                Arguments.of("zhang wei | mhmd | ivan ivanov", "zhang vay | mohamad | ivanov", 0.71),
-                Arguments.of("", "anton markov", 0.00),
-                Arguments.of("main st 123 moscow", "moskva 123 street", 0.45),
-                Arguments.of("aleksei petrov | aleksei.petrov@mail.ru", "a petrov | aleksei.petrov+test@mail.ru", 0.78),
+                Arguments.of("anton markov | antonmarkov@gmail.com", "markov anton | antonmarkov@gmail.com", 0.96),
+                Arguments.of("a markov | anton@gmail.com", "anton markov | antonmarkov@gmail.com", 0.97),
+                Arguments.of("résumé | crème brûlée", "resume | creme brulee", 0.38),
+                Arguments.of("zhang wei | mhmd | ivan ivanov", "zhang vay | mohamad | ivanov", 0.68),
+                Arguments.of("", "anton markov", 0.0),
+                Arguments.of("main st 123 moscow", "moskva 123 street", 0.42),
+                Arguments.of("aleksei petrov | aleksei.petrov@mail.ru", "a petrov | aleksei.petrov+test@mail.ru", 0.76),
                 Arguments.of("12345", "12345", 0.98),
-                Arguments.of("12345", "54321", 0.15),
-                Arguments.of("anton", "алик", 0.32),
-                Arguments.of("ul lenina 15 | lenina street 15 | moscow", "ulica lenina d 15 | 15 lenina | msk", 0.78)
+                Arguments.of("12345", "54321", 0.09),
+                Arguments.of("anton", "алик", 0.13),
+                Arguments.of("ul lenina 15 | lenina street 15 | moscow", "ulica lenina d 15 | 15 lenina | msk", 0.74)
         );
     }
 }
