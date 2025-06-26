@@ -14,7 +14,7 @@ spring:
           jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
 
 cleaner:
-  audience: 1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com
+  audience: https://cleaner-132616592036.us-central1.run.app
 
 embedding:
   api:
