@@ -47,14 +47,14 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean @Order(2)
+    @Bean
+    @Order(2)
     SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
         http.securityMatcher("/api/**")
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(a -> a.anyRequest().authenticated())
-                .oauth2ResourceServer(AbstractHttpConfigurer::disable);
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll());
         return http.build();
     }
 
