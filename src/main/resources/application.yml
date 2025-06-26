@@ -1,10 +1,8 @@
 spring:
   application:
     name: sheets-data-cleaner
-
   lifecycle:
     timeout-per-shutdown-phase: 30s
-
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:prod}
 
@@ -12,7 +10,11 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: https://dev-rwjc4dah5ucs6nj8.us.auth0.com/
+          issuer-uri: https://accounts.google.com
+          jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
+
+cleaner:
+  audience: 1072944905499-vm2v2i5dvn0a0d2o4ca36i1vge8cvbn0.apps.googleusercontent.com
 
 embedding:
   api:
@@ -21,7 +23,6 @@ embedding:
 server:
   port: 8081
   shutdown: graceful
-
   tomcat:
     max-http-form-post-size: 8MB
     threads:
@@ -34,7 +35,6 @@ management:
     web:
       exposure:
         include: health,info,prometheus,configprops
-
   metrics:
     enable:
       executor.queue.remaining: true
@@ -60,20 +60,17 @@ resilience4j:
         maxConcurrentCalls: 20
         maxWaitDuration: 200ms
         writableStackTraceEnabled: false
-
   timelimiter:
     instances:
       embeddingApi:
         timeoutDuration: 3s
         cancelRunningFuture: true
-
   ratelimiter:
     instances:
       embeddingApi:
         limitForPeriod: 200
         limitRefreshPeriod: 1s
         timeoutDuration: 0
-
   circuitbreaker:
     instances:
       embeddingApi:
@@ -99,7 +96,6 @@ minhash:
   very-short-len: ${MINHASH_VERY_SHORT_LEN:18}
   min-overlap-very-short: ${MINHASH_MIN_OVERLAP_VS:5}
   min-ngram-overlap: ${MINHASH_MIN_NGRAM_OVERLAP:8}
-
   lsh:
     band-size: ${MINHASH_LSH_BAND_SIZE:4}
     band-count: ${MINHASH_LSH_BAND_COUNT:32}

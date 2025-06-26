@@ -10,8 +10,10 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.core.OAuth2TokenValidator;
-import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtDecoders;
+import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
@@ -24,7 +26,8 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    @Bean @Order(0)
+    @Bean
+    @Order(0)
     SecurityFilterChain optionsChain(HttpSecurity http) throws Exception {
         http.securityMatcher(new AntPathRequestMatcher("/api/**", "OPTIONS"))
                 .csrf(AbstractHttpConfigurer::disable)
@@ -33,7 +36,8 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean @Order(1)
+    @Bean
+    @Order(1)
     SecurityFilterChain actuatorChain(HttpSecurity http) throws Exception {
         http.securityMatcher("/actuator/**")
                 .csrf(AbstractHttpConfigurer::disable)
@@ -44,7 +48,8 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean @Order(2)
+    @Bean
+    @Order(2)
     SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
         http.securityMatcher("/api/**")
                 .csrf(AbstractHttpConfigurer::disable)
@@ -75,12 +80,12 @@ public class SecurityConfig {
     @Bean
     public JwtDecoder jwtDecoder(
             @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer,
-            @Value("${security.jwt.audience:https://sheets-cleaner.api}") String audience) {
+            AudienceValidator audienceValidator) {
 
         NimbusJwtDecoder decoder = JwtDecoders.fromIssuerLocation(issuer);
-        OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(audience);
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 JwtValidators.createDefault(), audienceValidator));
         return decoder;
     }
+
 }
