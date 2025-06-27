@@ -56,7 +56,7 @@ class DuplicateControllerImplTest {
 
     @Test
     void duplicatesDetectedCorrectly() throws Exception {
-        DuplicateMatchRequest request = new DuplicateMatchRequest(ROWS);
+        DuplicateMatchRequest request = new DuplicateMatchRequest(ROWS, false);
 
         byte[] resp = mvc.perform(post("/api/v1/sheets/duplicates")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -74,7 +74,7 @@ class DuplicateControllerImplTest {
 
     @Test
     void emptyRows() throws Exception {
-        DuplicateMatchRequest request = new DuplicateMatchRequest(List.of());
+        DuplicateMatchRequest request = new DuplicateMatchRequest(List.of(), false);
 
         mvc.perform(post("/api/v1/sheets/duplicates")
                         .contentType(MediaType.APPLICATION_JSON)

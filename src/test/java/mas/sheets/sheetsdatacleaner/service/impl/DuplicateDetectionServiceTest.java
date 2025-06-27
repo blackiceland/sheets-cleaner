@@ -59,7 +59,7 @@ class DuplicateDetectionServiceTest {
     @MethodSource("provideTestRows")
     @DisplayName("detects duplicates using real similarity container")
     void shouldDetectDuplicatesWithContainer(List<List<String>> rows) {
-        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
+        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows, false));
 
         Set<IndexPair> expectedConfirmed = Set.of(
                 IndexPair.of(0, 20),    // «anton markov» ↔ «anton markov»
@@ -418,7 +418,7 @@ class DuplicateDetectionServiceTest {
     @MethodSource("provideTestRowsProd")
     @DisplayName("duplicate detector returns clusters with FUZZY rows")
     void shouldDetectClustersWithFuzzy(List<List<String>> rows) {
-        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows));
+        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows, false));
 
         // ─── confirmed (точные) ──────────────────────────────────────────────
         Set<IndexPair> expectedConfirmed = Set.of(
