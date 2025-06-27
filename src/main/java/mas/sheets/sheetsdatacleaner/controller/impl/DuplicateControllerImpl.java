@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @Slf4j
 @RestController
 @Validated
@@ -20,10 +22,17 @@ public class DuplicateControllerImpl implements DuplicateController {
     private final DuplicateDetectionService duplicateDetectionService;
 
     @Override
-    @PostMapping(value = "/api/v1/sheets/duplicates")
+    @PostMapping("/api/v1/sheets/duplicates")
     public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
-        log.info("Detecting duplicates for {} rows", request.rows());
+        List<List<String>> rows = request.rows();
 
-        return duplicateDetectionService.findDuplicates(request);
+        if (request.hasHeaders() && !rows.isEmpty()) {
+            rows = rows.subList(1, rows.size());
+        }
+
+        DuplicateMatchRequest trimmedRequest = new DuplicateMatchRequest(rows, false);
+        log.info("Detecting duplicates for {} rows", rows.size());
+
+        return duplicateDetectionService.findDuplicates(trimmedRequest);
     }
 }
