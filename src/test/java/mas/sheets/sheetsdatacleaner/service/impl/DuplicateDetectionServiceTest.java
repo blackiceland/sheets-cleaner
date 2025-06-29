@@ -34,7 +34,7 @@ class DuplicateDetectionServiceTest {
 
     @SuppressWarnings("resource")
     private static final GenericContainer<?> similarity =
-            new GenericContainer<>("similarity:0.3.0")
+            new GenericContainer<>("similarity:0.3.2")
                     .withExposedPorts(PORT)
                     .waitingFor(
                             Wait.forHttp("/health")
