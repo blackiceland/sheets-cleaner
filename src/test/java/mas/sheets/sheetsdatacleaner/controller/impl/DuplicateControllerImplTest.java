@@ -39,6 +39,7 @@ class DuplicateControllerImplTest {
     private static final GenericContainer<?> similarity =
             new GenericContainer<>("similarity:0.3.0")
                     .withExposedPorts(PORT)
+                    .withReuse(true)
                     .waitingFor(
                             Wait.forHttp("/health")
                                     .forStatusCode(200)

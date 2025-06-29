@@ -13,6 +13,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 COPY --from=build /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=build /usr/local/bin /usr/local/bin
 COPY --from=build /model /app/model
 COPY similarity_server.py .
 
