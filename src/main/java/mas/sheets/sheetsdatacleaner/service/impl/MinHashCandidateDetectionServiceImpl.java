@@ -64,7 +64,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             int limit = Math.max(20, rows.size() / 50);
             Int2IntOpenHashMap df = new Int2IntOpenHashMap(1 << 18);
 
-            rows.forEach(r -> collectTrigrams(r == null ? "" : r.value())
+            rows.forEach(r -> collectNGrams(r == null ? "" : r.value())
                     .forEach(g -> df.addTo(g & HASH_MASK, 1)));
 
             noisy = new BitSet(1 << 24);
@@ -96,7 +96,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
                         .map(t -> t.substring(0, 1).toLowerCase())
                         .collect(Collectors.joining());
 
-                IntOpenHashSet grams = collectTrigrams(raw);
+                IntOpenHashSet grams = collectNGrams(raw);
 
                 buf[i] = new MinHashData(
                         buildSignature(grams, noisy),
@@ -178,21 +178,21 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         return sig;
     }
 
-    private static IntOpenHashSet collectTrigrams(String raw) {
+    private static IntOpenHashSet collectNGrams(String raw) {
         String s = " " + raw.replace('|', ' ') + " ";
         int[] cps = s.codePoints().toArray();
         IntOpenHashSet set = new IntOpenHashSet(cps.length);
-        for (int i = 0; i <= cps.length - 3; i++) {
-            int h = mix3(cps[i], cps[i + 1], cps[i + 2]);
-            set.add(h);
-        }
+
+        for (int i = 0; i <= cps.length - 3; i++)
+            set.add(mix3(cps[i], cps[i + 1], cps[i + 2]));
+
+        for (int i = 0; i <= cps.length - 4; i++)
+            set.add(mix4(cps[i], cps[i + 1], cps[i + 2], cps[i + 3]));
+
         return set;
     }
 
-    private static int mix3(int a, int b, int c) {
-        int h = a;
-        h = 31 * h + b;
-        h = 31 * h + c;
+    private static int finalizeHash(int h) {
         h ^= h >>> 16;
         h *= 0x7feb352d;
         h ^= h >>> 15;
@@ -200,6 +200,17 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         h ^= h >>> 16;
         return h;
     }
+
+    private static int mix3(int a, int b, int c) {
+        int h = ((a * 31 + b) * 31) + c;
+        return finalizeHash(h);
+    }
+
+    private static int mix4(int a, int b, int c, int d) {
+        int h = (((a * 31 + b) * 31 + c) * 31) + d;
+        return finalizeHash(h);
+    }
+
 
     private static int mix(int x, int seed) {
         int h = x ^ seed;
@@ -216,8 +227,11 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
 
         int inter = 0, i = 0, j = 0;
         while (i < a.ngrams.length && j < b.ngrams.length) {
-            if (a.ngrams[i] == b.ngrams[j]) { inter++; i++; j++; }
-            else if (a.ngrams[i] < b.ngrams[j]) i++;
+            if (a.ngrams[i] == b.ngrams[j]) {
+                inter++;
+                i++;
+                j++;
+            } else if (a.ngrams[i] < b.ngrams[j]) i++;
             else j++;
         }
 
@@ -265,8 +279,7 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
         Random rnd = new Random(123);
         List<int[]> sigs = new ArrayList<>(sample);
         for (int i = 0; i < sample; i++)
-            sigs.add(buildSignature(
-                    collectTrigrams(rows.get(rnd.nextInt(total)).value()), new BitSet(0)));
+            sigs.add(buildSignature(collectNGrams(rows.get(rnd.nextInt(total)).value()), new BitSet(0)));
 
         int bestBand = props.lsh().bandSize();
         double bestΔ = Double.MAX_VALUE;

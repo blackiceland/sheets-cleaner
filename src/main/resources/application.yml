@@ -109,9 +109,9 @@ duplicate-detector:
   fast-confirm-short: ${DD_FAST_CONFIRM_SHORT:0.62}
   fast-confirm-long: ${DD_FAST_CONFIRM_LONG:0.55}
   short-len-limit: ${DD_SHORT_LEN_LIMIT:30}
-  nn-len-limit: ${DD_NN_LEN_LIMIT:20}
+  nn-len-limit: ${DD_NN_LEN_LIMIT:15}
   nn-confirm-short: ${DD_NN_CONFIRM_SHORT:0.65}
-  nn-confirm-long: ${DD_NN_CONFIRM_LONG:0.78}
+  nn-confirm-long: ${DD_NN_CONFIRM_LONG:0.60}
   token-weight: ${DD_TOKEN_WEIGHT:0.10}
   lev-weight: ${DD_LEV_WEIGHT:0.45}
   jw-weight: ${DD_JW_WEIGHT:0.45}
