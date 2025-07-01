@@ -2,15 +2,19 @@ FROM python:3.10-slim AS build
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L6-v2', tokenizer_args={'use_fast': False}).save('/model')"
+RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/stsb-roberta-base', tokenizer_args={'use_fast': False}).save('/model')"
 
 FROM python:3.10-slim
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y curl --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY --from=build /usr/local/bin /usr/local/bin
@@ -26,5 +30,5 @@ RUN adduser --disabled-password --gecos '' appuser
 USER appuser
 
 EXPOSE 5000
-HEALTHCHECK CMD curl -f http://localhost:5000/health || exit 1
+HEALTHCHECK CMD curl -fs http://localhost:5000/health || exit 1
 CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "similarity_server:app"]

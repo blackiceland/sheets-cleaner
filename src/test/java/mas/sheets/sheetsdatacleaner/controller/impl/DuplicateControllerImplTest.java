@@ -56,6 +56,17 @@ class DuplicateControllerImplTest {
     }
 
     @Test
+    void emptyRows() throws Exception {
+        DuplicateMatchRequest request = new DuplicateMatchRequest(List.of(), false);
+
+        mvc.perform(post("/api/v1/sheets/duplicates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsBytes(request)))
+                .andExpect(status().isOk());
+    }
+
+
+    @Test
     void duplicatesDetectedCorrectly() throws Exception {
         DuplicateMatchRequest request = new DuplicateMatchRequest(ROWS, false);
 
@@ -70,17 +81,7 @@ class DuplicateControllerImplTest {
         DuplicateMatchResponse result = mapper.readValue(resp, DuplicateMatchResponse.class);
 
         assertThat(result.confirmed()).hasSize(26);
-        assertThat(result.candidates()).hasSize(68);
-    }
-
-    @Test
-    void emptyRows() throws Exception {
-        DuplicateMatchRequest request = new DuplicateMatchRequest(List.of(), false);
-
-        mvc.perform(post("/api/v1/sheets/duplicates")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsBytes(request)))
-                .andExpect(status().isOk());
+        assertThat(result.candidates()).hasSize(74);
     }
 
     private static final List<List<String>> ROWS = List.<List<String>>of(

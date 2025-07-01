@@ -409,7 +409,10 @@ class DuplicateDetectionServiceTest {
                         List.of("Smith, J. (2023). The Art of Programming. Journal of Computer Science, 15(2), 145-158.", "", ""), // 227
                         List.of("Smith J. The Art of Programming // Journal of Computer Science. 2023. Vol. 15(2). P. 145-158", "", ""), // 228
                         List.of("Smith (2023) The Art of Programming", "", ""), // 229
-                        List.of("Smith, J. \"The Art of Programming.\" Journal of Computer Science, vol. 15, no. 2, 2023, pp. 145-158.", "", "") // 230// 150
+                        List.of("Smith, J. \"The Art of Programming.\" Journal of Computer Science, vol. 15, no. 2, 2023, pp. 145-158.", "", ""), // 230// 150
+
+                        List.of("anton markov 1"),
+                        List.of("anton markov 2")
                 )
         );
     }
