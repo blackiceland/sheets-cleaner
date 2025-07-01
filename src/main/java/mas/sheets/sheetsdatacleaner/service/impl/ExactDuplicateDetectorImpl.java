@@ -14,8 +14,17 @@ import java.util.stream.IntStream;
 @Component
 public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
 
-    private static final int PARALLEL_THRESHOLD = 100_000;
-    private static final Pattern NON_ALNUM = Pattern.compile("[^\\p{Alnum}]");
+    private static final Pattern ZERO_WIDTH = Pattern.compile("[\\u200B-\\u200D\\uFEFF]");
+    private static final Pattern SEP = Pattern.compile("[-_/+]+");
+    private static final Pattern SPACE = Pattern.compile("\\s+");
+
+    private static String canonical(String s) {
+        if (s == null) return "";
+        String t = ZERO_WIDTH.matcher(s).replaceAll("");
+        t = SEP.matcher(t).replaceAll(" ");
+        t = SPACE.matcher(t.trim()).replaceAll(" ");
+        return t.toLowerCase(Locale.ROOT);
+    }
 
     @Override
     public ExactDetectionResult detect(List<RowNorm> rows) {
@@ -24,93 +33,42 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
-                    Collections.emptyMap());
+                    Collections.emptyMap()
+            );
         }
 
         int n = rows.size();
-        boolean par = n > PARALLEL_THRESHOLD;
-
-        String[] key = new String[n];
-
-        IntStream range = par ? IntStream.range(0, n).parallel() : IntStream.range(0, n);
-        range.forEach(i -> {
-            String row = Optional.ofNullable(rows.get(i).value()).orElse("").trim();
-            key[i] = NON_ALNUM.matcher(row).replaceAll("").toLowerCase(Locale.ROOT);
-        });
+        String[] keys = new String[n];
+        IntStream.range(0, n).parallel().forEach(i -> keys[i] = canonical(rows.get(i).value()));
 
         Map<String, List<Integer>> buckets = new HashMap<>();
         for (int i = 0; i < n; i++) {
-            buckets.computeIfAbsent(key[i], k -> new ArrayList<>()).add(i);
+            buckets.computeIfAbsent(keys[i], k -> new ArrayList<>()).add(i);
         }
 
-        DisjointSet dsu = new DisjointSet(n);
-        unite(buckets.values(), dsu);
-
-        Map<Integer, List<Integer>> groups = new HashMap<>();
-        for (int i = 0; i < n; i++) {
-            groups.computeIfAbsent(dsu.find(i), k -> new ArrayList<>()).add(i);
-        }
-
-        List<List<Integer>> dupGroups = new ArrayList<>();
+        List<List<Integer>> duplicateGroups = new ArrayList<>();
         List<RowNorm> remainRows = new ArrayList<>();
         List<Integer> remainIdxSrc = new ArrayList<>();
         Map<Integer, RowMeta> metaByIdx = new HashMap<>();
 
-        for (List<Integer> g : groups.values()) {
-            if (g.size() > 1) {
-                int canon = g.getFirst();
+        for (List<Integer> positions : buckets.values()) {
+            if (positions.size() > 1) {
                 UUID clusterId = UUID.randomUUID();
-                metaByIdx.put(rows.get(canon).idx(), new RowMeta(rows.get(canon).idx(), clusterId, ClusterKind.CANON));
-                for (int j = 1; j < g.size(); j++) {
-                    int pos = g.get(j);
-                    metaByIdx.put(rows.get(pos).idx(), new RowMeta(rows.get(pos).idx(), clusterId, ClusterKind.EXACT));
+                int firstPos = positions.getFirst();
+                RowNorm firstRow = rows.get(firstPos);
+                metaByIdx.put(firstRow.idx(), new RowMeta(firstRow.idx(), clusterId, ClusterKind.CANON));
+                for (int j = 1; j < positions.size(); j++) {
+                    RowNorm r = rows.get(positions.get(j));
+                    metaByIdx.put(r.idx(), new RowMeta(r.idx(), clusterId, ClusterKind.EXACT));
                 }
-                dupGroups.add(g.stream().map(i -> rows.get(i).idx()).toList());
+                duplicateGroups.add(positions.stream().map(p -> rows.get(p).idx()).toList());
             } else {
-                int pos = g.getFirst();
+                int pos = positions.getFirst();
                 remainRows.add(rows.get(pos));
                 remainIdxSrc.add(rows.get(pos).idx());
             }
         }
 
-        return new ExactDetectionResult(dupGroups, remainRows, remainIdxSrc, metaByIdx);
-    }
-
-    private void unite(Collection<List<Integer>> buckets, DisjointSet dsu) {
-        for (List<Integer> b : buckets) {
-            if (b.size() < 2) continue;
-            int root = b.getFirst();
-            for (int j = 1; j < b.size(); j++) dsu.union(root, b.get(j));
-        }
-    }
-
-    private static final class DisjointSet {
-        private final int[] parent;
-        private final byte[] rank;
-
-        DisjointSet(int n) {
-            parent = new int[n];
-            rank = new byte[n];
-            for (int i = 0; i < n; i++) parent[i] = i;
-        }
-
-        int find(int x) {
-            while (parent[x] != x) {
-                parent[x] = parent[parent[x]];
-                x = parent[x];
-            }
-            return x;
-        }
-
-        void union(int x, int y) {
-            int rx = find(x), ry = find(y);
-            if (rx == ry) return;
-            if (rank[rx] < rank[ry]) parent[rx] = ry;
-            else if (rank[rx] > rank[ry]) parent[ry] = rx;
-            else {
-                parent[ry] = rx;
-                rank[rx]++;
-            }
-        }
+        return new ExactDetectionResult(duplicateGroups, remainRows, remainIdxSrc, metaByIdx);
     }
 }

@@ -302,6 +302,10 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return IndexPair.of(idx.get(p.first()), idx.get(p.second()));
     }
 
+    private static Map<Integer, RowNorm> toMap(List<RowNorm> rows) {
+        return rows.stream().collect(Collectors.toMap(RowNorm::idx, r -> r));
+    }
+
     private static String fmtRows(List<RowNorm> rows) {
         return rows.stream()
                 .map(r -> "[" + r.idx() + "] «" + r.value() + "»")
@@ -310,8 +314,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     }
 
     private static String fmtRowsByIdx(List<RowNorm> all, List<Integer> idxs) {
+        Map<Integer, RowNorm> map = toMap(all);
         return idxs.stream()
-                .map(i -> all.stream().filter(r -> r.idx() == i).findFirst().orElse(null))
+                .map(map::get)
                 .filter(Objects::nonNull)
                 .map(r -> "[" + r.idx() + "] «" + r.value() + "»")
                 .toList()
@@ -319,13 +324,21 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     }
 
     private static String fmtPairs(Collection<IndexPair> pairs, List<RowNorm> rows) {
-        return pairs.stream().map(p -> pr(p, rows)).toList().toString();
+        Map<Integer, RowNorm> map = toMap(rows);
+        return pairs.stream().map(p -> pr(p, map)).toList().toString();
     }
 
     private static String pr(IndexPair p, List<RowNorm> rows) {
-        String l = p.first()  < rows.size() ? rows.get(p.first()).value()  : "∅";
-        String r = p.second() < rows.size() ? rows.get(p.second()).value() : "∅";
-        return p + " -> «" + l + "» / «" + r + "»";
+        Map<Integer, RowNorm> map = toMap(rows);
+        return pr(p, map);
+    }
+
+    private static String pr(IndexPair p, Map<Integer, RowNorm> map) {
+        RowNorm l = map.get(p.first());
+        RowNorm r = map.get(p.second());
+        String lv = (l != null) ? l.value() : "∅";
+        String rv = (r != null) ? r.value() : "∅";
+        return p + " -> «" + lv + "» / «" + rv + "»";
     }
 
     private record PairEval(IndexPair pair, double weightedScore, int maxLen) {
