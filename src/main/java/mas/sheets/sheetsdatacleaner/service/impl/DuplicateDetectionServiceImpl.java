@@ -153,7 +153,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                             : props.fastConfirmLong();
 
                     if (ev.weightedScore >= confirmThr) {
+                        String lClean = l.replaceAll("\\d+", "");
+                        String rClean = r.replaceAll("\\d+", "");
+                        if (countCommonAlpha(lClean, rClean) < 3) {
+                            fastRejected.incrementAndGet();
+                            log.debug("decision=fc.rejectByAlpha pair={} commonAlpha<3 left='{}' right='{}'", p, l, r);
+                            return;
+                        }
                         probable.add(mapOriginal(p, restIdx));
+
                         fastConfirmed.incrementAndGet();
                         updateMeta(meta, p, restIdx);
                         log.debug("decision=fastConfirm pair={} score={} left='{}' right='{}'",
@@ -321,6 +329,24 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 .map(r -> "[" + r.idx() + "] «" + r.value() + "»")
                 .toList()
                 .toString();
+    }
+
+    private static int countCommonAlpha(String a, String b) {
+        Set<String> ngrams = new HashSet<>();
+        String sa = a.toLowerCase().replaceAll("[^a-z]", "");
+        String sb = b.toLowerCase().replaceAll("[^a-z]", "");
+
+        for (int len : new int[]{3, 4}) {
+            for (int i = 0; i <= sa.length() - len; i++)
+                ngrams.add(sa.substring(i, i + len));
+        }
+        int common = 0;
+        for (int len : new int[]{3, 4}) {
+            for (int i = 0; i <= sb.length() - len && common < 3; i++)
+                if (ngrams.contains(sb.substring(i, i + len)))
+                    common++;
+        }
+        return common;
     }
 
     private static String fmtRowsByIdx(List<RowNorm> all, List<Integer> idxs) {

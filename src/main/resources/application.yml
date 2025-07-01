@@ -106,8 +106,8 @@ duplicate-detector:
   hard-reject-short: ${DD_HARD_REJECT_SHORT:0.15}
   hard-reject-long: ${DD_HARD_REJECT_LONG:0.25}
   fast-reject-threshold: ${DD_FAST_REJECT_THRESHOLD:0.35}
-  fast-confirm-short: ${DD_FAST_CONFIRM_SHORT:0.62}
-  fast-confirm-long: ${DD_FAST_CONFIRM_LONG:0.55}
+  fast-confirm-short: ${DD_FAST_CONFIRM_SHORT:0.64}
+  fast-confirm-long: ${DD_FAST_CONFIRM_LONG:0.62}
   short-len-limit: ${DD_SHORT_LEN_LIMIT:30}
   nn-len-limit: ${DD_NN_LEN_LIMIT:15}
   nn-confirm-short: ${DD_NN_CONFIRM_SHORT:0.65}
