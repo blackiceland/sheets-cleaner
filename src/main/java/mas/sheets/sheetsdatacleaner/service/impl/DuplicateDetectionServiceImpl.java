@@ -288,14 +288,24 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         RowMeta l = meta.get(idL);
         RowMeta r = meta.get(idR);
 
-        UUID cluster = (l != null) ? l.clusterId()
+        UUID target = (l != null) ? l.clusterId()
                 : (r != null) ? r.clusterId()
                 : UUID.randomUUID();
 
+        if (l != null && r != null && !l.clusterId().equals(r.clusterId())) {
+            UUID obsolete = r.clusterId();
+            meta.forEach((idx, m) -> {
+                if (m.clusterId().equals(obsolete)) {
+                    meta.put(idx, new RowMeta(idx, target, m.kind()));
+                }
+            });
+        }
+
         if (l == null)
-            meta.put(idL, new RowMeta(idL, cluster, ClusterKind.FUZZY));
-        if (r == null)
-            meta.put(idR, new RowMeta(idR, cluster, ClusterKind.FUZZY));
+            meta.put(idL, new RowMeta(idL, target, ClusterKind.FUZZY));
+
+        if (r == null || !r.clusterId().equals(target))
+            meta.put(idR, new RowMeta(idR, target, ClusterKind.FUZZY));
     }
 
     private IndexPair mapOriginal(IndexPair p, List<Integer> idx) {

@@ -106,15 +106,15 @@ duplicate-detector:
   hard-reject-short: ${DD_HARD_REJECT_SHORT:0.15}
   hard-reject-long: ${DD_HARD_REJECT_LONG:0.25}
   fast-reject-threshold: ${DD_FAST_REJECT_THRESHOLD:0.35}
-  fast-confirm-short: ${DD_FAST_CONFIRM_SHORT:0.65}
+  fast-confirm-short: ${DD_FAST_CONFIRM_SHORT:0.62}
   fast-confirm-long: ${DD_FAST_CONFIRM_LONG:0.55}
   short-len-limit: ${DD_SHORT_LEN_LIMIT:30}
   nn-len-limit: ${DD_NN_LEN_LIMIT:20}
   nn-confirm-short: ${DD_NN_CONFIRM_SHORT:0.65}
   nn-confirm-long: ${DD_NN_CONFIRM_LONG:0.78}
-  token-weight: ${DD_TOKEN_WEIGHT:0.60}
-  lev-weight: ${DD_LEV_WEIGHT:0.25}
-  jw-weight: ${DD_JW_WEIGHT:0.10}
+  token-weight: ${DD_TOKEN_WEIGHT:0.10}
+  lev-weight: ${DD_LEV_WEIGHT:0.45}
+  jw-weight: ${DD_JW_WEIGHT:0.45}
   neural-batch-size: ${DD_NEURAL_BATCH_SIZE:50}
   max-in-flight: ${DD_MAX_IN_FLIGHT:4000}
   worker-multiplier: ${DD_WORKER_MULTIPLIER:2}
