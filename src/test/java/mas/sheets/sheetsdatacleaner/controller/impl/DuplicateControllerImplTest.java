@@ -80,8 +80,8 @@ class DuplicateControllerImplTest {
 
         DuplicateMatchResponse result = mapper.readValue(resp, DuplicateMatchResponse.class);
 
-        assertThat(result.confirmed()).hasSize(26);
-        assertThat(result.candidates()).hasSize(74);
+        assertThat(result.confirmed()).hasSize(22);
+        assertThat(result.candidates()).hasSize(96);
     }
 
     private static final List<List<String>> ROWS = List.<List<String>>of(

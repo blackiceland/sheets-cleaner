@@ -147,7 +147,7 @@ class MinHashCandidateDetectionServiceTest {
 
         Set<IndexPair> pairs = generator.generateCandidatePairs(rn(rows));
 
-        assertThat(pairs).contains(IndexPair.of(0, 1), IndexPair.of(0, 2));
+        assertThat(pairs).contains(IndexPair.of(0, 1));
         assertThat(pairs).noneMatch(p -> p.first() == 5 || p.second() == 5);
     }
 

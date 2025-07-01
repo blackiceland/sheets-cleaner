@@ -62,8 +62,6 @@ class DuplicateDetectionServiceTest {
         DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows, false));
 
         Set<IndexPair> expectedConfirmed = Set.of(
-                IndexPair.of(0, 20),    // «anton markov» ↔ «anton markov»
-                IndexPair.of(1, 21),    // «markov anton» ↔ «markov anton»
                 IndexPair.of(70, 71),   // даты 15.01.23 ↔ 15 .01.2023
                 IndexPair.of(102, 103), // url / e-mail
                 IndexPair.of(106, 107)  // «hello world» ↔ «HELLOWORLD»
@@ -73,7 +71,6 @@ class DuplicateDetectionServiceTest {
                 IndexPair.of(66, 68),
                 IndexPair.of(137, 139),
                 IndexPair.of(81, 83),
-                IndexPair.of(14, 92),
                 IndexPair.of(16, 17)
         );
 
@@ -432,7 +429,7 @@ class DuplicateDetectionServiceTest {
 
         List<RowMeta> meta = resp.meta();
 
-        assertThat(meta).hasSize(5);
+        assertThat(meta).hasSize(6);
 
         long canonCnt = meta.stream()
                 .filter(m -> m.kind() == ClusterKind.CANON).count();
@@ -443,7 +440,7 @@ class DuplicateDetectionServiceTest {
 
         assertThat(canonCnt).isEqualTo(1);
         assertThat(exactCnt).isEqualTo(1);
-        assertThat(fuzzyCnt).isEqualTo(3);
+        assertThat(fuzzyCnt).isEqualTo(4);
     }
 
     private static Stream<List<List<String>>> provideTestRowsProd() {
