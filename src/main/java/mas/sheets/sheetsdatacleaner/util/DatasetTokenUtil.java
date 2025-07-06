@@ -45,6 +45,9 @@ public final class DatasetTokenUtil {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    private static final int MAX_TOKEN_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_JSON_BYTES = 5 * 1024 * 1024;
+
     private DatasetTokenUtil() {}
 
     public static String encode(DatasetPayload payload, byte[] secret) {
@@ -99,7 +102,16 @@ public final class DatasetTokenUtil {
         if (secret == null || secret.length < 32)
             throw new IllegalArgumentException("Secret key must be >=32 bytes");
 
-        byte[] all = B64_URL_DEC.decode(token);
+        if (token.length() > MAX_TOKEN_BYTES * 4 / 3) // base64 expands ~33%
+            throw new IllegalArgumentException("Token too large");
+
+        byte[] all;
+        try {
+            all = B64_URL_DEC.decode(token);
+        } catch (IllegalArgumentException iae) {
+            throw new IllegalArgumentException("Invalid Base64 token", iae);
+        }
+
         if (all.length < 1 + 1 + IV_LEN + 4 + 16 + 32)
             throw new IllegalArgumentException("Token too small");
 
@@ -146,6 +158,10 @@ public final class DatasetTokenUtil {
         }
 
         byte[] json = gunzip(compressed);
+
+        if (json.length > MAX_JSON_BYTES)
+            throw new IllegalArgumentException("Decompressed payload too large");
+
         DatasetPayload payload;
         try {
             payload = JSON.readValue(json, DatasetPayload.class);
