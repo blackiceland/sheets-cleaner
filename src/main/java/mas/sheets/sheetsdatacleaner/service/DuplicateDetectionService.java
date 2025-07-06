@@ -2,11 +2,15 @@ package mas.sheets.sheetsdatacleaner.service;
 
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
 
 import java.util.List;
 
 public interface DuplicateDetectionService {
 
     DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request);
+
+    DuplicateMatchResponse detectFuzzy(List<RowNorm> normalized, ExactDetectionResult exact);
 
 }

@@ -83,6 +83,19 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 log.debug("exact.group={} rows={}", g, fmtRowsByIdx(normalized, g)));
         log.debug("exact.remain={}", fmtRows(exact.remainRows()));
 
+        return detectFuzzy(normalized, exact);
+    }
+
+    /**
+     * Выполняет только fuzzy-часть алгоритма, предполагая, что нормализация и точный поиск уже сделаны.
+     * Этот метод будет использоваться новым эндпоинтом /duplicates/fuzzy.
+     */
+    @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
+    @Override
+    public DuplicateMatchResponse detectFuzzy(List<RowNorm> normalized, ExactDetectionResult exact) {
+        if (normalized == null) normalized = List.of();
+        if (exact == null) exact = new ExactDetectionResult(List.of(), List.of(), List.of(), Map.of());
+
         Set<IndexPair> confirmed = ConcurrentHashMap.newKeySet();
         Set<IndexPair> probable = ConcurrentHashMap.newKeySet();
 
@@ -201,8 +214,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         if (!toNeural.isEmpty())
             runNeuralStage(toNeural, restRows, restIdx, probable, meta);
 
-        log.info("stage=finish confirmed={} probable={} meta={}",
-                confirmed.size(), probable.size(), meta.size());
+        log.info("stage=finish confirmed={} probable={} meta={}", confirmed.size(), probable.size(), meta.size());
         log.debug("finish.confirmedPairs={}", fmtPairs(confirmed, normalized));
         log.debug("finish.probablePairs={}", fmtPairs(probable, normalized));
         log.debug("finish.meta={}", meta.values());
@@ -286,10 +298,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         log.info("stage=neural batch={} confirmedByNN={}", batch.size(), confirmedByNN.get());
     }
 
-    private void updateMeta(ConcurrentHashMap<Integer, RowMeta> meta,
-                            IndexPair pair,
-                            List<Integer> restIdx) {
-
+    private void updateMeta(ConcurrentHashMap<Integer, RowMeta> meta, IndexPair pair, List<Integer> restIdx) {
         int idL = restIdx.get(pair.first());
         int idR = restIdx.get(pair.second());
 
