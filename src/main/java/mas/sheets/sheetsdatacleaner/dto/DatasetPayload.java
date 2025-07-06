@@ -12,10 +12,12 @@ import java.util.List;
  * @param exp   Unix-время истечения (секунды).
  * @param rows  нормализованные строки (rowId + value + idx).
  * @param exact результат детектора точных дубликатов.
+ * @param hasHeader флаг наличия заголовка в данных.
  */
 public record DatasetPayload(
         @JsonProperty("exp") long exp,
         @JsonProperty("rows") List<RowNorm> rows,
-        @JsonProperty("exact") ExactDetectionResult exact
+        @JsonProperty("exact") ExactDetectionResult exact,
+        @JsonProperty("hasHeader") boolean hasHeader
 ) {
 } 
