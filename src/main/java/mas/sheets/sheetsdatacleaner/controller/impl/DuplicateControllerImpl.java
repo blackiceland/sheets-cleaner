@@ -14,6 +14,9 @@ import mas.sheets.sheetsdatacleaner.model.RowMeta;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
 import mas.sheets.sheetsdatacleaner.service.ExactDuplicateService;
 import mas.sheets.sheetsdatacleaner.util.DatasetTokenUtil;
+import mas.sheets.sheetsdatacleaner.service.ExactDuplicateDetector;
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
+import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,6 +36,7 @@ public class DuplicateControllerImpl implements DuplicateController {
 
     private final DuplicateDetectionService duplicateDetectionService;
     private final ExactDuplicateService exactService;
+    private final ExactDuplicateDetector exactDetector;
 
     @Value("${token.secret}")
     private byte[] tokenSecret;
@@ -113,16 +117,27 @@ public class DuplicateControllerImpl implements DuplicateController {
     public DuplicateMatchResponse fuzzyStage(@RequestBody FuzzyDuplicateRequest request) {
         DatasetPayload payload = DatasetTokenUtil.decode(request.datasetToken(), tokenSecret);
 
-        // TODO: removedRowIds handling later
+        List<Long> removed = request.removedRowIds() == null
+                ? List.of()
+                : request.removedRowIds();
 
-        DuplicateMatchResponse resp = duplicateDetectionService.detectFuzzy(payload.rows(), payload.exact());
+        List<RowNorm> kept = payload.rows()
+                .stream()
+                .filter(r -> !removed.contains(r.rowId()))
+                .toList();
+
+        ExactDetectionResult exact = exactDetector.detect(kept);
+
+        DuplicateMatchResponse resp = duplicateDetectionService.detectFuzzy(kept, exact);
 
         if (payload.hasHeader()) {
-            Set<IndexPair> confirmedShift = resp.confirmed().stream()
+            Set<IndexPair> confirmedShift = resp.confirmed()
+                    .stream()
                     .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
                     .collect(Collectors.toSet());
 
-            Set<IndexPair> candidatesShift = resp.candidates().stream()
+            Set<IndexPair> candidatesShift = resp.candidates()
+                    .stream()
                     .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
                     .collect(Collectors.toSet());
 
