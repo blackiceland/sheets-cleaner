@@ -110,7 +110,13 @@ public class DuplicateControllerImpl implements DuplicateController {
 
         String token = DatasetTokenUtil.encode(payload, tokenSecret);
 
-        return new ExactDuplicateResponse(token, resp);
+        List<ExactDuplicateResponse.RowIndexId> rowsInfo = stage.normalizedRows().stream()
+                .map(r -> new ExactDuplicateResponse.RowIndexId(
+                        hasHeader ? r.idx() + 1 : r.idx(),
+                        r.rowId()))
+                .toList();
+
+        return new ExactDuplicateResponse(token, resp, rowsInfo);
     }
 
     @PostMapping("/api/v1/sheets/duplicates/fuzzy")

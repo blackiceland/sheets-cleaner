@@ -118,3 +118,6 @@ duplicate-detector:
   neural-batch-size: ${DD_NEURAL_BATCH_SIZE:50}
   max-in-flight: ${DD_MAX_IN_FLIGHT:4000}
   worker-multiplier: ${DD_WORKER_MULTIPLIER:2}
+
+token:
+  secret: ${TOKEN_SECRET:0123456789abcdef0123456789abcdef}
