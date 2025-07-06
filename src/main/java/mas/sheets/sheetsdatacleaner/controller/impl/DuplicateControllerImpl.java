@@ -38,7 +38,7 @@ public class DuplicateControllerImpl implements DuplicateController {
     private final ExactDuplicateService exactService;
     private final ExactDuplicateDetector exactDetector;
 
-    @Value("${token.secret}")
+    @Value("${token.secret:0123456789abcdef0123456789abcdef}")
     private byte[] tokenSecret;
 
     @Override
