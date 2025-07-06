@@ -22,7 +22,7 @@ class MinHashCandidateDetectionServiceTest {
 
     private static List<RowNorm> rn(List<String> rows) {
         List<RowNorm> out = new ArrayList<>(rows.size());
-        for (int i = 0; i < rows.size(); i++) out.add(new RowNorm(i, rows.get(i)));
+        for (int i = 0; i < rows.size(); i++) out.add(RowNorm.of(i, rows.get(i)));
         return out;
     }
 

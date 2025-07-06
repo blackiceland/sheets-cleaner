@@ -67,7 +67,7 @@ public class RowNormalizerServiceImpl implements RowNormalizerService {
                     String norm = normalizeRow(rows.get(i));
                     return (norm.isBlank() || norm.length() < 3)
                             ? null
-                            : new RowNorm(i, norm);
+                            : RowNorm.of(i, norm);
                 })
                 .filter(Objects::nonNull)
                 .toList();
