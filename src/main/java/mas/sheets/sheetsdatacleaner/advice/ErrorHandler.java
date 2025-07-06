@@ -13,7 +13,7 @@ import org.springframework.web.server.PayloadTooLargeException;
 @RestControllerAdvice
 public class ErrorHandler {
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class, IllegalArgumentException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     ErrorResponse badRequest(Exception ex) {
         return new ErrorResponse("BAD_REQUEST", ex.getMessage());
