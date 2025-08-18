@@ -66,6 +66,7 @@ class NeuralSimilarityServiceTest {
                 Arguments.of("zhang wei | mhmd | ivan ivanov", "zhang vay | mohamad | ivanov", 0.70),
                 Arguments.of("", "anton markov", 0.0),
                 Arguments.of("main st 123 moscow", "moskva 123 street", 0.44),
+                Arguments.of("main st 123 moscow", "main st 124 moscow", 0.99),
                 Arguments.of("aleksei petrov | aleksei.petrov@mail.ru", "a petrov | aleksei.petrov+test@mail.ru", 0.78),
                 Arguments.of("12345", "12345", 0.98),
                 Arguments.of("12345", "54321", 0.14),
