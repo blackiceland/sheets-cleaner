@@ -9,8 +9,6 @@ import mas.sheets.sheetsdatacleaner.dto.request.FuzzyDuplicateRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.ExactDuplicateResponse;
 import mas.sheets.sheetsdatacleaner.dto.DatasetPayload;
 import mas.sheets.sheetsdatacleaner.dto.ExactStageResult;
-import mas.sheets.sheetsdatacleaner.model.IndexPair;
-import mas.sheets.sheetsdatacleaner.model.RowMeta;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
 import mas.sheets.sheetsdatacleaner.service.ExactDuplicateService;
 import mas.sheets.sheetsdatacleaner.util.DatasetTokenUtil;
@@ -24,8 +22,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 import java.time.Instant;
 
 @Slf4j
@@ -45,32 +41,32 @@ public class DuplicateControllerImpl implements DuplicateController {
     @PostMapping("/api/v1/sheets/duplicates")
     public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
 
-        List<List<String>> rows = request.rows();
-        boolean hasHeader = request.hasHeaders();
-
-        DuplicateMatchRequest reqForService = hasHeader && !rows.isEmpty()
-                ? new DuplicateMatchRequest(rows.subList(1, rows.size()), false)
-                : request;
+        // List<List<String>> rows = request.rows();
+        // boolean hasHeader = request.hasHeaders();
+        // DuplicateMatchRequest reqForService = hasHeader && !rows.isEmpty()
+        //         ? new DuplicateMatchRequest(rows.subList(1, rows.size()), false)
+        //         : request;
+        DuplicateMatchRequest reqForService = request;
 
         log.info("Detecting duplicates for {} rows", reqForService.rows().size());
 
         DuplicateMatchResponse resp = duplicateDetectionService.findDuplicates(reqForService);
 
-        if (hasHeader) {
-            Set<IndexPair> confirmedShift = resp.confirmed().stream()
-                    .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
-                    .collect(Collectors.toSet());
-
-            Set<IndexPair> candidatesShift = resp.candidates().stream()
-                    .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
-                    .collect(Collectors.toSet());
-
-            List<RowMeta> metaShift = resp.meta().stream()
-                    .map(m -> new RowMeta(m.idx() + 1, m.clusterId(), m.kind()))
-                    .toList();
-
-            resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
-        }
+        // if (hasHeader) {
+        //     Set<IndexPair> confirmedShift = resp.confirmed().stream()
+        //             .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
+        //             .collect(Collectors.toSet());
+        //
+        //     Set<IndexPair> candidatesShift = resp.candidates().stream()
+        //             .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
+        //             .collect(Collectors.toSet());
+        //
+        //     List<RowMeta> metaShift = resp.meta().stream()
+        //             .map(m -> new RowMeta(m.idx() + 1, m.clusterId(), m.kind()))
+        //             .toList();
+        //
+        //     resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
+        // }
 
         return resp;
     }
@@ -78,41 +74,43 @@ public class DuplicateControllerImpl implements DuplicateController {
     @PostMapping("/api/v1/sheets/duplicates/exact")
     public ExactDuplicateResponse exactStage(@RequestBody DuplicateMatchRequest request) {
 
-        List<List<String>> rows = request.rows();
-        boolean hasHeader = request.hasHeaders();
-
-        DuplicateMatchRequest req = (hasHeader && !rows.isEmpty())
-                ? new DuplicateMatchRequest(rows.subList(1, rows.size()), false)
-                : request;
+        // List<List<String>> rows = request.rows();
+        // boolean hasHeader = request.hasHeaders();
+        // DuplicateMatchRequest req = (hasHeader && !rows.isEmpty())
+        //         ? new DuplicateMatchRequest(rows.subList(1, rows.size()), false)
+        //         : request;
+        DuplicateMatchRequest req = request;
 
         ExactStageResult stage = exactService.detectExact(req);
 
         DuplicateMatchResponse resp = stage.exactResponse();
 
-        if (hasHeader) {
-            Set<IndexPair> confirmedShift = resp.confirmed().stream()
-                    .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
-                    .collect(Collectors.toSet());
-
-            Set<IndexPair> candidatesShift = resp.candidates().stream()
-                    .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
-                    .collect(Collectors.toSet());
-
-            List<RowMeta> metaShift = resp.meta().stream()
-                    .map(m -> new RowMeta(m.idx() + 1, m.clusterId(), m.kind()))
-                    .toList();
-
-            resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
-        }
+        // if (hasHeader) {
+        //     Set<IndexPair> confirmedShift = resp.confirmed().stream()
+        //             .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
+        //             .collect(Collectors.toSet());
+        //
+        //     Set<IndexPair> candidatesShift = resp.candidates().stream()
+        //             .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
+        //             .collect(Collectors.toSet());
+        //
+        //     List<RowMeta> metaShift = resp.meta().stream()
+        //             .map(m -> new RowMeta(m.idx() + 1, m.clusterId(), m.kind()))
+        //             .toList();
+        //
+        //     resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
+        // }
 
         long exp = Instant.now().getEpochSecond() + 1800;
-        DatasetPayload payload = new DatasetPayload(exp, stage.normalizedRows(), stage.exactResult(), hasHeader);
+        // DatasetPayload payload = new DatasetPayload(exp, stage.normalizedRows(), stage.exactResult(), hasHeader);
+        DatasetPayload payload = new DatasetPayload(exp, stage.normalizedRows(), stage.exactResult(), false);
 
         String token = DatasetTokenUtil.encode(payload, tokenSecret);
 
         List<ExactDuplicateResponse.RowIndexId> rowsInfo = stage.normalizedRows().stream()
                 .map(r -> new ExactDuplicateResponse.RowIndexId(
-                        hasHeader ? r.idx() + 1 : r.idx(),
+                        // hasHeader ? r.idx() + 1 : r.idx(),
+                        r.idx(),
                         r.rowId()))
                 .toList();
 
@@ -136,23 +134,23 @@ public class DuplicateControllerImpl implements DuplicateController {
 
         DuplicateMatchResponse resp = duplicateDetectionService.detectFuzzy(kept, exact);
 
-        if (payload.hasHeader()) {
-            Set<IndexPair> confirmedShift = resp.confirmed()
-                    .stream()
-                    .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
-                    .collect(Collectors.toSet());
-
-            Set<IndexPair> candidatesShift = resp.candidates()
-                    .stream()
-                    .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
-                    .collect(Collectors.toSet());
-
-            List<RowMeta> metaShift = resp.meta().stream()
-                    .map(m -> new RowMeta(m.idx() + 1, m.clusterId(), m.kind()))
-                    .toList();
-
-            resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
-        }
+        // if (payload.hasHeader()) {
+        //     Set<IndexPair> confirmedShift = resp.confirmed()
+        //             .stream()
+        //             .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
+        //             .collect(Collectors.toSet());
+        //
+        //     Set<IndexPair> candidatesShift = resp.candidates()
+        //             .stream()
+        //             .map(p -> IndexPair.of(p.first() + 1, p.second() + 1))
+        //             .collect(Collectors.toSet());
+        //
+        //     List<RowMeta> metaShift = resp.meta().stream()
+        //             .map(m -> new RowMeta(m.idx() + 1, m.clusterId(), m.kind()))
+        //             .toList();
+        //
+        //     resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
+        // }
 
         return resp;
     }
