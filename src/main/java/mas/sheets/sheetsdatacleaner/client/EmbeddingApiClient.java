@@ -54,6 +54,7 @@ public class EmbeddingApiClient {
             try {
                 String body = mapper.writeValueAsString(payload);
 
+                long t0 = System.nanoTime();
                 HttpRequest req = HttpRequest.newBuilder(api)
                         .timeout(Duration.ofSeconds(10))
                         .header("Content-Type", "application/json")
@@ -62,13 +63,29 @@ public class EmbeddingApiClient {
                         .build();
 
                 HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+                long ms = (System.nanoTime() - t0) / 1_000_000;
+                log.debug("embedding.api status={} timeMs={} payloadSize={} url={}",
+                        resp.statusCode(), ms, payload == null ? 0 : payload.size(), api);
 
                 if (resp.statusCode() != 200) {
                     throw new IllegalStateException("Embedding API " + resp.statusCode() + ": " + resp.body());
                 }
 
-                return mapper.readValue(resp.body(), new TypeReference<>() {
-                });
+                List<Double> scores = mapper.readValue(resp.body(), new TypeReference<>() {});
+                if (payload != null && scores != null && scores.size() != payload.size()) {
+                    log.warn("embedding.api sizeMismatch sent={} got={}", payload.size(), scores.size());
+                }
+                if (scores != null && !scores.isEmpty()) {
+                    double min = 1.0, max = 0.0; int zeros = 0;
+                    for (Double s : scores) {
+                        double v = (s == null) ? 0.0 : s;
+                        if (v == 0.0) zeros++;
+                        if (v < min) min = v;
+                        if (v > max) max = v;
+                    }
+                    log.debug("embedding.api scores size={} zeros={} min={} max={}", scores.size(), zeros, min, max);
+                }
+                return scores;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
