@@ -18,6 +18,9 @@ public record DuplicateDetectorProps(
         double jwWeight,
         int neuralBatchSize,
         int maxInFlight,
-        int workerMultiplier
+        int workerMultiplier,
+        Integer toNeuralMax,
+        Integer toNeuralPct,
+        Double nnOverflowCandidateMinScore
 ) {
 }

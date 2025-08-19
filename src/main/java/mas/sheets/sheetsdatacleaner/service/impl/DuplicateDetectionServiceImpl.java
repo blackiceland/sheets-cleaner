@@ -37,6 +37,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
     private final RowNormalizerService normalizer;
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
+    private final NeuralGateService neuralGate;
     private final ThreadPoolTaskExecutor workers;
     private final ExecutorService neuralPool;
 
@@ -47,6 +48,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             RowNormalizerService normalizer,
             @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
             NeuralSimilarityService neuralService,
+            NeuralGateService neuralGate,
             @Qualifier("workPool") ThreadPoolTaskExecutor workers) {
 
         this.props = props;
@@ -55,6 +57,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         this.normalizer = normalizer;
         this.scorers = scorers;
         this.neuralService = neuralService;
+        this.neuralGate = neuralGate;
         this.workers = workers;
 
         int core = Runtime.getRuntime().availableProcessors();
@@ -211,8 +214,25 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 hardRejected.get(), fastRejected.get(), fastConfirmed.get(), toNeural.size());
         log.debug("heuristic.fastConfirmed={}", fmtPairs(probable, normalized));
 
-        if (!toNeural.isEmpty())
-            runNeuralStage(toNeural, restRows, restIdx, probable, meta);
+        if (!toNeural.isEmpty()) {
+            List<NeuralGateService.EvalItem> items = toNeural.stream()
+                    .map(e -> new NeuralGateService.EvalItem(e.pair, e.weightedScore, e.maxLen))
+                    .toList();
+
+            NeuralGateService.Split split = neuralGate.splitForNeural(items);
+
+            for (NeuralGateService.EvalItem it : split.overflowHighScore()) {
+                probable.add(mapOriginal(it.pair(), restIdx));
+                updateMeta(meta, it.pair(), restIdx);
+            }
+
+            List<PairEval> gated = split.selectedForNeural().stream()
+                    .map(it -> new PairEval(it.pair(), it.weightedScore(), it.maxLen()))
+                    .toList();
+
+            if (!gated.isEmpty())
+                runNeuralStage(gated, restRows, restIdx, probable, meta);
+        }
 
         log.info("stage=finish confirmed={} probable={} meta={}", confirmed.size(), probable.size(), meta.size());
         log.debug("finish.confirmedPairs={}", fmtPairs(confirmed, normalized));

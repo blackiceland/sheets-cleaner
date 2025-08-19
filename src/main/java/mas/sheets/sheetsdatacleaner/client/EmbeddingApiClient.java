@@ -45,7 +45,7 @@ public class EmbeddingApiClient {
         this.embeddingExecutor = executor;
     }
 
-    @Bulkhead(name = "embeddingApi", type = Bulkhead.Type.SEMAPHORE)
+    @Bulkhead(name = "embeddingApi", type = Bulkhead.Type.THREADPOOL)
     @TimeLimiter(name = "embeddingApi")
     @CircuitBreaker(name = "embeddingApi", fallbackMethod = "fallback")
     @RateLimiter(name = "embeddingApi")

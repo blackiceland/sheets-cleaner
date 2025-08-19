@@ -70,7 +70,7 @@ resilience4j:
       embeddingApi:
         limitForPeriod: 200
         limitRefreshPeriod: 1s
-        timeoutDuration: 0
+        timeoutDuration: 2s
   circuitbreaker:
     instances:
       embeddingApi:
@@ -87,6 +87,13 @@ resilience4j:
         ignoreExceptions:
           - java.util.concurrent.CancellationException
         writableStackTraceEnabled: false
+
+  thread-pool-bulkhead:
+    instances:
+      embeddingApi:
+        coreThreadPoolSize: 2
+        maxThreadPoolSize: 2
+        queueCapacity: 50
 
 minhash:
   max-batch: ${MINHASH_MAX_BATCH:100000}
@@ -118,6 +125,9 @@ duplicate-detector:
   neural-batch-size: ${DD_NEURAL_BATCH_SIZE:50}
   max-in-flight: ${DD_MAX_IN_FLIGHT:4000}
   worker-multiplier: ${DD_WORKER_MULTIPLIER:2}
+  to-neural-max: ${DD_TO_NEURAL_MAX:200}
+  to-neural-pct: ${DD_TO_NEURAL_PCT:2}
+  nn-overflow-candidate-min-score: ${DD_NN_OVERFLOW_CANDIDATE_MIN_SCORE:0.50}
 
 token:
   secret: ${TOKEN_SECRET:0123456789abcdef0123456789abcdef}

@@ -30,5 +30,5 @@ RUN adduser --disabled-password --gecos '' appuser
 USER appuser
 
 EXPOSE 5000
-HEALTHCHECK CMD curl -fs http://localhost:5000/health || exit 1
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "similarity_server:app"]
+HEALTHCHECK CMD sh -c 'curl -fs http://localhost:$PORT/health || exit 1'
+CMD ["sh","-c","gunicorn -w 2 -b 0.0.0.0:$PORT similarity_server:app"]
