@@ -46,11 +46,9 @@ public class DuplicateControllerImpl implements DuplicateController {
         // DuplicateMatchRequest reqForService = hasHeader && !rows.isEmpty()
         //         ? new DuplicateMatchRequest(rows.subList(1, rows.size()), false)
         //         : request;
-        DuplicateMatchRequest reqForService = request;
+//        DuplicateMatchRequest reqForService = request;
 
-        log.info("Detecting duplicates for {} rows", reqForService.rows().size());
-
-        DuplicateMatchResponse resp = duplicateDetectionService.findDuplicates(reqForService);
+        log.info("Detecting duplicates for {} rows", request.rows().size());
 
         // if (hasHeader) {
         //     Set<IndexPair> confirmedShift = resp.confirmed().stream()
@@ -68,7 +66,7 @@ public class DuplicateControllerImpl implements DuplicateController {
         //     resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
         // }
 
-        return resp;
+        return duplicateDetectionService.findDuplicates(request);
     }
 
     @PostMapping("/api/v1/sheets/duplicates/exact")
@@ -79,9 +77,9 @@ public class DuplicateControllerImpl implements DuplicateController {
         // DuplicateMatchRequest req = (hasHeader && !rows.isEmpty())
         //         ? new DuplicateMatchRequest(rows.subList(1, rows.size()), false)
         //         : request;
-        DuplicateMatchRequest req = request;
+//        DuplicateMatchRequest req = request;
 
-        ExactStageResult stage = exactService.detectExact(req);
+        ExactStageResult stage = exactService.detectExact(request);
 
         DuplicateMatchResponse resp = stage.exactResponse();
 
@@ -132,8 +130,6 @@ public class DuplicateControllerImpl implements DuplicateController {
 
         ExactDetectionResult exact = exactDetector.detect(kept);
 
-        DuplicateMatchResponse resp = duplicateDetectionService.detectFuzzy(kept, exact);
-
         // if (payload.hasHeader()) {
         //     Set<IndexPair> confirmedShift = resp.confirmed()
         //             .stream()
@@ -152,6 +148,6 @@ public class DuplicateControllerImpl implements DuplicateController {
         //     resp = new DuplicateMatchResponse(confirmedShift, candidatesShift, metaShift);
         // }
 
-        return resp;
+        return duplicateDetectionService.detectFuzzy(kept, exact);
     }
 }
