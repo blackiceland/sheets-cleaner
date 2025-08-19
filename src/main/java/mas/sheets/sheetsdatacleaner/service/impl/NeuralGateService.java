@@ -30,7 +30,7 @@ public class NeuralGateService {
 
         int pctCount = (int) Math.floor(items.size() * (pct / 100.0));
         int limit = Math.min(max, Math.max(pctCount, 50));
-        limit = Math.max(0, Math.min(limit, items.size()));
+        limit = Math.min(limit, items.size());
 
         List<EvalItem> sorted = new ArrayList<>(items);
         sorted.sort(Comparator.comparingDouble(EvalItem::weightedScore).reversed());

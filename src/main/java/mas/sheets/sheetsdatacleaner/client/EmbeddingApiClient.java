@@ -67,7 +67,7 @@ public class EmbeddingApiClient {
                     throw new IllegalStateException("Embedding API " + resp.statusCode() + ": " + resp.body());
                 }
 
-                return mapper.readValue(resp.body(), new TypeReference<List<Double>>() {
+                return mapper.readValue(resp.body(), new TypeReference<>() {
                 });
             } catch (Exception e) {
                 throw new RuntimeException(e);
@@ -75,6 +75,7 @@ public class EmbeddingApiClient {
         }, embeddingExecutor);
     }
 
+    @SuppressWarnings("unused")
     private CompletableFuture<List<Double>> fallback(List<Map<String, String>> payload, Throwable ex) {
         log.warn("Embedding fallback: {}", ex.getMessage());
         return CompletableFuture.completedFuture(Collections.nCopies(payload.size(), 0.0));
