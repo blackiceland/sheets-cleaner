@@ -46,8 +46,8 @@ management:
 
 logging:
   level:
-    root: DEBUG
-    mas.sheets.sheetsdatacleaner.service.impl.DuplicateDetectionServiceImpl: DEBUG
+    root: INFO
+    mas.sheets.sheetsdatacleaner.service.impl.DuplicateDetectionServiceImpl: INFO
 
 resilience4j:
   bulkhead:
