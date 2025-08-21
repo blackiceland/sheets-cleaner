@@ -99,6 +99,7 @@ minhash:
   max-batch: ${MINHASH_MAX_BATCH:100000}
   max-len: ${MINHASH_MAX_LEN:1000}
   max-pairs-per-row: ${MINHASH_MAX_PAIRS_PER_ROW:30}
+  max-total-pairs: ${MINHASH_MAX_TOTAL_PAIRS:20000}
   short-row-max-length: ${MINHASH_SHORT_ROW_MAX_LENGTH:20}
   very-short-len: ${MINHASH_VERY_SHORT_LEN:18}
   min-overlap-very-short: ${MINHASH_MIN_OVERLAP_VS:5}

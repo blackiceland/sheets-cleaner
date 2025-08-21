@@ -149,6 +149,26 @@ public class MinHashCandidateDetectionServiceImpl implements MinHashCandidateDet
             }
         });
 
+        int cap = Math.max(0, props.maxTotalPairs());
+        if (cap > 0 && out.size() > cap) {
+            List<IndexPair> limited = out.stream().sorted((p1, p2) -> {
+                MinHashData x1 = buf[p1.first()];
+                MinHashData y1 = buf[p1.second()];
+                boolean acr1 = sameAcronym(x1, y1);
+                int len1 = Math.min(x1.effLen, y1.effLen);
+
+                MinHashData x2 = buf[p2.first()];
+                MinHashData y2 = buf[p2.second()];
+                boolean acr2 = sameAcronym(x2, y2);
+                int len2 = Math.min(x2.effLen, y2.effLen);
+
+                if (acr1 != acr2) return acr1 ? -1 : 1;
+                return Integer.compare(len2, len1);
+            }).limit(cap).toList();
+
+            return new HashSet<>(limited);
+        }
+
         return out;
     }
 

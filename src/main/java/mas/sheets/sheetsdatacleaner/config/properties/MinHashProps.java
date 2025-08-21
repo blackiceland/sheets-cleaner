@@ -7,6 +7,7 @@ public record MinHashProps(
         int maxBatch,
         int maxLen,
         int maxPairsPerRow,
+        int maxTotalPairs,
         int shortRowMaxLength,
         int veryShortLen,
         int minOverlapVeryShort,
