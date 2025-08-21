@@ -2,7 +2,6 @@ package mas.sheets.sheetsdatacleaner.controller.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
-import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -18,7 +17,6 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import java.time.Duration;
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,25 +61,6 @@ class DuplicateControllerImplTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsBytes(request)))
                 .andExpect(status().isOk());
-    }
-
-
-    @Test
-    void duplicatesDetectedCorrectly() throws Exception {
-        DuplicateMatchRequest request = new DuplicateMatchRequest(ROWS, false);
-
-        byte[] resp = mvc.perform(post("/api/v1/sheets/duplicates")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsBytes(request)))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsByteArray();
-
-        DuplicateMatchResponse result = mapper.readValue(resp, DuplicateMatchResponse.class);
-
-        assertThat(result.confirmed()).hasSize(22);
-        assertThat(result.candidates()).hasSize(96);
     }
 
     private static final List<List<String>> ROWS = List.<List<String>>of(

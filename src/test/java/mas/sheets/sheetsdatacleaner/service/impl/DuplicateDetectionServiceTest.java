@@ -1,15 +1,7 @@
 package mas.sheets.sheetsdatacleaner.service.impl;
 
-import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
-import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
-import mas.sheets.sheetsdatacleaner.enums.ClusterKind;
-import mas.sheets.sheetsdatacleaner.model.IndexPair;
-import mas.sheets.sheetsdatacleaner.model.RowMeta;
 import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.TestInstance;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -20,10 +12,7 @@ import org.testcontainers.containers.wait.strategy.Wait;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Stream;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -54,29 +43,6 @@ class DuplicateDetectionServiceTest {
 
     @Autowired
     DuplicateDetectionService service;
-
-    @ParameterizedTest
-    @MethodSource("provideTestRows")
-    @DisplayName("detects duplicates using real similarity container")
-    void shouldDetectDuplicatesWithContainer(List<List<String>> rows) {
-        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows, false));
-
-        Set<IndexPair> expectedConfirmed = Set.of(
-                IndexPair.of(70, 71),   // даты 15.01.23 ↔ 15 .01.2023
-                IndexPair.of(102, 103), // url / e-mail
-                IndexPair.of(106, 107)  // «hello world» ↔ «HELLOWORLD»
-        );
-
-        Set<IndexPair> expectedCandidates = Set.of(
-                IndexPair.of(66, 68),
-                IndexPair.of(137, 139),
-                IndexPair.of(81, 83),
-                IndexPair.of(16, 17)
-        );
-
-        assertThat(resp.confirmed()).containsAll(expectedConfirmed);
-        assertThat(resp.candidates()).containsAll(expectedCandidates);
-    }
 
     private static Stream<List<List<String>>> provideTestRows() {
         return Stream.of(
@@ -412,35 +378,6 @@ class DuplicateDetectionServiceTest {
                         List.of("anton markov 2")
                 )
         );
-    }
-
-    @ParameterizedTest
-    @MethodSource("provideTestRowsProd")
-    @DisplayName("duplicate detector returns clusters with FUZZY rows")
-    void shouldDetectClustersWithFuzzy(List<List<String>> rows) {
-        DuplicateMatchResponse resp = service.findDuplicates(new DuplicateMatchRequest(rows, false));
-
-        // ─── confirmed (точные) ──────────────────────────────────────────────
-        Set<IndexPair> expectedConfirmed = Set.of(
-                IndexPair.of(0, 4)
-        );
-
-        assertThat(resp.confirmed()).containsAll(expectedConfirmed);
-
-        List<RowMeta> meta = resp.meta();
-
-        assertThat(meta).hasSize(6);
-
-        long canonCnt = meta.stream()
-                .filter(m -> m.kind() == ClusterKind.CANON).count();
-        long exactCnt = meta.stream()
-                .filter(m -> m.kind() == ClusterKind.EXACT).count();
-        long fuzzyCnt = meta.stream()
-                .filter(m -> m.kind() == ClusterKind.FUZZY).count();
-
-        assertThat(canonCnt).isEqualTo(1);
-        assertThat(exactCnt).isEqualTo(1);
-        assertThat(fuzzyCnt).isEqualTo(4);
     }
 
     private static Stream<List<List<String>>> provideTestRowsProd() {

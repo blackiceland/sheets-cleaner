@@ -259,7 +259,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                         confirmedByNN.incrementAndGet();
                         updateMeta(meta, ev.pair, originalIdx);
                     } else {
-                        log.info("[fuzzy] no-op");
+                        // no-op
                     }
                 }
             };
