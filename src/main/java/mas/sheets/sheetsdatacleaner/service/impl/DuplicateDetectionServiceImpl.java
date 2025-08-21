@@ -107,8 +107,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
         log.info("[fuzzy] candidatePairs after MinHash={}", pairs.size());
 
-        if (pairs.isEmpty())
+        if (pairs.isEmpty()) {
             return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
+        }
 
         List<PairEval> toNeural = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(pairs.size());
