@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.config.properties.DuplicateDetectorProps;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.enums.ClusterKind;
-import mas.sheets.sheetsdatacleaner.exception.TooManyRequestsException;
 import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.model.RowMeta;
@@ -111,60 +110,65 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
         }
 
-        List<PairEval> toNeural = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(pairs.size());
+        Queue<PairEval> toNeural = new ConcurrentLinkedQueue<>();
+
+        List<IndexPair> pairList = new ArrayList<>(pairs);
+        final int batchSize = 500;
+        int batches = (pairList.size() + batchSize - 1) / batchSize;
+        CountDownLatch latch = new CountDownLatch(batches);
 
         AtomicInteger hardRejected = new AtomicInteger();
         AtomicInteger fastRejected = new AtomicInteger();
         AtomicInteger fastConfirmed = new AtomicInteger();
 
-        for (IndexPair p : pairs) {
+        for (int b = 0; b < batches; b++) {
+            int from = b * batchSize;
+            int to = Math.min(from + batchSize, pairList.size());
+            List<IndexPair> slice = pairList.subList(from, to);
+
             Runnable job = () -> {
                 try {
-                    PairEval ev = evaluatePair(p, restRows);
-                    String l = restRows.get(p.first()).value();
-                    String r = restRows.get(p.second()).value();
+                    for (IndexPair p : slice) {
+                        PairEval ev = evaluatePair(p, restRows);
+                        String l = restRows.get(p.first()).value();
+                        String r = restRows.get(p.second()).value();
 
-                    double hardThr = (ev.maxLen < 15)
-                            ? props.hardRejectShort()
-                            : props.hardRejectLong();
+                        double hardThr = (ev.maxLen < 15)
+                                ? props.hardRejectShort()
+                                : props.hardRejectLong();
 
-                    if (ev.weightedScore <= hardThr) {
-                        hardRejected.incrementAndGet();
-                        return;
-                    }
-
-                    double confirmThr = (ev.maxLen < props.shortLenLimit())
-                            ? props.fastConfirmShort()
-                            : props.fastConfirmLong();
-
-                    if (ev.weightedScore >= confirmThr) {
-                        String lClean = l.replaceAll("\\d+", "");
-                        String rClean = r.replaceAll("\\d+", "");
-                        if (countCommonAlpha(lClean, rClean) < 3) {
-                            fastRejected.incrementAndGet();
-                            return;
+                        if (ev.weightedScore <= hardThr) {
+                            hardRejected.incrementAndGet();
+                            continue;
                         }
-                        probable.add(mapOriginal(p, restIdx));
 
-                        fastConfirmed.incrementAndGet();
-                        updateMeta(meta, p, restIdx);
-                    } else if (ev.weightedScore > props.fastRejectThreshold()) {
-                        toNeural.add(ev);
-                        fastRejected.incrementAndGet();
-                    } else {
-                        hardRejected.incrementAndGet();
+                        double confirmThr = (ev.maxLen < props.shortLenLimit())
+                                ? props.fastConfirmShort()
+                                : props.fastConfirmLong();
+
+                        if (ev.weightedScore >= confirmThr) {
+                            String lClean = l.replaceAll("\\d+", "");
+                            String rClean = r.replaceAll("\\d+", "");
+                            if (countCommonAlpha(lClean, rClean) < 3) {
+                                fastRejected.incrementAndGet();
+                                continue;
+                            }
+                            probable.add(mapOriginal(p, restIdx));
+                            fastConfirmed.incrementAndGet();
+                            updateMeta(meta, p, restIdx);
+                        } else if (ev.weightedScore > props.fastRejectThreshold()) {
+                            toNeural.add(ev);
+                            fastRejected.incrementAndGet();
+                        } else {
+                            hardRejected.incrementAndGet();
+                        }
                     }
                 } finally {
                     latch.countDown();
                 }
             };
 
-            try {
-                workers.execute(job);
-            } catch (RejectedExecutionException ex) {
-                throw new TooManyRequestsException();
-            }
+            workers.execute(job);
         }
 
         try {

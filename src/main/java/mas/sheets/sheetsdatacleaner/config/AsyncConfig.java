@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
-import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 
 @Configuration
 public class AsyncConfig {
@@ -26,7 +26,7 @@ public class AsyncConfig {
         t.setThreadNamePrefix("work-");
         t.setRejectedExecutionHandler((r, ex) -> {
             rejects.increment();
-            throw new RejectedExecutionException("Task rejected: pool overloaded");
+            new ThreadPoolExecutor.CallerRunsPolicy().rejectedExecution(r, ex);
         });
         t.initialize();
         return t;
