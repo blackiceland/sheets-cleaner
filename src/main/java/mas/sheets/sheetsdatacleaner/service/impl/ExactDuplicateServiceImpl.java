@@ -26,16 +26,13 @@ public class ExactDuplicateServiceImpl implements ExactDuplicateService {
 
     @Override
     public ExactStageResult detectExact(DuplicateMatchRequest request) {
+        log.info("[exact] input rows={}", request.rows().size());
         List<RowNorm> normalized = normalizer.normalizeRows(request.rows());
-        log.info("[exact] normalized rows={}", normalized.size());
 
         ExactDetectionResult exact = exactDetector.detect(normalized);
-        log.info("[exact] groups={} duplicates={} remaining={}",
-                exact.duplicateGroups().size(),
-                exact.duplicateGroups().stream().mapToInt(List::size).sum(),
-                exact.remainRows().size());
 
         Set<IndexPair> confirmed = new HashSet<>();
+
         for (List<Integer> g : exact.duplicateGroups())
             for (int i = 0; i < g.size(); i++)
                 for (int j = i + 1; j < g.size(); j++)
@@ -44,6 +41,12 @@ public class ExactDuplicateServiceImpl implements ExactDuplicateService {
         List<RowMeta> meta = new ArrayList<>(exact.metaByIdx().values());
 
         DuplicateMatchResponse resp = new DuplicateMatchResponse(confirmed, Collections.emptySet(), meta);
+
+        log.info("[exact] output sizes: confirmedPairs={}, metaEntries={}, duplicateGroups={}, remaining={}",
+                confirmed.size(),
+                meta.size(),
+                exact.duplicateGroups().size(),
+                exact.remainRows().size());
 
         return new ExactStageResult(resp, normalized, exact);
     }

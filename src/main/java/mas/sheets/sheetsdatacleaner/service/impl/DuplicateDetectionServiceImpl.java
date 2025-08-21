@@ -4,7 +4,6 @@ import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.config.properties.DuplicateDetectorProps;
-import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
 import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
 import mas.sheets.sheetsdatacleaner.enums.ClusterKind;
 import mas.sheets.sheetsdatacleaner.exception.TooManyRequestsException;
@@ -12,7 +11,9 @@ import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
 import mas.sheets.sheetsdatacleaner.model.IndexPair;
 import mas.sheets.sheetsdatacleaner.model.RowMeta;
 import mas.sheets.sheetsdatacleaner.model.RowNorm;
-import mas.sheets.sheetsdatacleaner.service.*;
+import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
+import mas.sheets.sheetsdatacleaner.service.MinHashCandidateDetectionService;
+import mas.sheets.sheetsdatacleaner.service.NeuralSimilarityService;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.SimilarityScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.JaroWinklerScorer;
 import mas.sheets.sheetsdatacleaner.similarity.scorer.impl.LevenshteinScorer;
@@ -32,9 +33,7 @@ import java.util.stream.Collectors;
 public class DuplicateDetectionServiceImpl implements DuplicateDetectionService {
 
     private final DuplicateDetectorProps props;
-    private final ExactDuplicateDetector exactDetector;
     private final MinHashCandidateDetectionService candidateGenerator;
-    private final RowNormalizerService normalizer;
     private final List<SimilarityScorer> scorers;
     private final NeuralSimilarityService neuralService;
     private final NeuralGateService neuralGate;
@@ -43,18 +42,14 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
     public DuplicateDetectionServiceImpl(
             DuplicateDetectorProps props,
-            ExactDuplicateDetector exactDetector,
             MinHashCandidateDetectionService candidateGenerator,
-            RowNormalizerService normalizer,
             @Qualifier("heuristicScorers") List<SimilarityScorer> scorers,
             NeuralSimilarityService neuralService,
             NeuralGateService neuralGate,
             @Qualifier("workPool") ThreadPoolTaskExecutor workers) {
 
         this.props = props;
-        this.exactDetector = exactDetector;
         this.candidateGenerator = candidateGenerator;
-        this.normalizer = normalizer;
         this.scorers = scorers;
         this.neuralService = neuralService;
         this.neuralGate = neuralGate;
@@ -70,29 +65,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         neuralPool.shutdown();
     }
 
-    @Override
-    @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
-    public DuplicateMatchResponse findDuplicates(DuplicateMatchRequest request) {
-        List<RowNorm> normalized = normalizer.normalizeRows(request.rows());
-        log.info("stage=normalize rows={}", normalized.size());
-        log.debug("normalize.rows={}", fmtRows(normalized));
-
-        ExactDetectionResult exact = exactDetector.detect(normalized);
-        log.info("stage=exact groups={} duplicates={} remaining={}",
-                exact.duplicateGroups().size(),
-                exact.duplicateGroups().stream().mapToInt(List::size).sum(),
-                exact.remainRows().size());
-        exact.duplicateGroups().forEach(g ->
-                log.debug("exact.group={} rows={}", g, fmtRowsByIdx(normalized, g)));
-        log.debug("exact.remain={}", fmtRows(exact.remainRows()));
-
-        return detectFuzzy(normalized, exact);
-    }
-
-    /**
-     * Выполняет только fuzzy-часть алгоритма, предполагая, что нормализация и точный поиск уже сделаны.
-     * Этот метод будет использоваться новым эндпоинтом /duplicates/fuzzy.
-     */
     @Bulkhead(name = "duplicateDetector", type = Bulkhead.Type.SEMAPHORE)
     @Override
     public DuplicateMatchResponse detectFuzzy(List<RowNorm> normalized, ExactDetectionResult exact) {
@@ -106,9 +78,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             for (int i = 0; i < g.size(); i++)
                 for (int j = i + 1; j < g.size(); j++)
                     confirmed.add(IndexPair.of(g.get(i), g.get(j)));
-
-        if (!confirmed.isEmpty())
-            log.debug("confirmed.exactPairs={}", fmtPairs(confirmed, normalized));
 
         List<RowNorm> restRows = new ArrayList<>(exact.remainRows());
         List<Integer> restIdx = new ArrayList<>(exact.remainIdxSrc());
@@ -132,9 +101,11 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         if (restRows.isEmpty())
             return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
 
+        log.info("[fuzzy] candidates input rows={}", restRows.size());
+
         Set<IndexPair> pairs = candidateGenerator.generateCandidatePairs(restRows);
-        log.info("stage=candidate pairs={}", pairs.size());
-        log.debug("candidates.pairs={}", fmtPairs(pairs, restRows));
+
+        log.info("[fuzzy] candidatePairs after MinHash={}", pairs.size());
 
         if (pairs.isEmpty())
             return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
@@ -159,8 +130,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
 
                     if (ev.weightedScore <= hardThr) {
                         hardRejected.incrementAndGet();
-                        log.debug("decision=hardReject pair={} score={} left='{}' right='{}'",
-                                p, ev.weightedScore, l, r);
                         return;
                     }
 
@@ -173,24 +142,17 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                         String rClean = r.replaceAll("\\d+", "");
                         if (countCommonAlpha(lClean, rClean) < 3) {
                             fastRejected.incrementAndGet();
-                            log.debug("decision=fc.rejectByAlpha pair={} commonAlpha<3 left='{}' right='{}'", p, l, r);
                             return;
                         }
                         probable.add(mapOriginal(p, restIdx));
 
                         fastConfirmed.incrementAndGet();
                         updateMeta(meta, p, restIdx);
-                        log.debug("decision=fastConfirm pair={} score={} left='{}' right='{}'",
-                                p, ev.weightedScore, l, r);
                     } else if (ev.weightedScore > props.fastRejectThreshold()) {
                         toNeural.add(ev);
                         fastRejected.incrementAndGet();
-                        log.debug("decision=toNeural pair={} score={} left='{}' right='{}'",
-                                p, ev.weightedScore, l, r);
                     } else {
                         hardRejected.incrementAndGet();
-                        log.debug("decision=fastReject pair={} score={} left='{}' right='{}'",
-                                p, ev.weightedScore, l, r);
                     }
                 } finally {
                     latch.countDown();
@@ -210,9 +172,8 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             Thread.currentThread().interrupt();
         }
 
-        log.info("stage=heuristic hardRejected={} fastRejected={} fastConfirmed={} toNeural={}",
+        log.info("[fuzzy] stage=heuristic hardRejected={} fastRejected={} fastConfirmed={} toNeural={}",
                 hardRejected.get(), fastRejected.get(), fastConfirmed.get(), toNeural.size());
-        log.debug("heuristic.fastConfirmed={}", fmtPairs(probable, normalized));
 
         if (!toNeural.isEmpty()) {
             List<NeuralGateService.EvalItem> items = toNeural.stream()
@@ -220,6 +181,9 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                     .toList();
 
             NeuralGateService.Split split = neuralGate.splitForNeural(items);
+
+            log.info("[fuzzy] gate selectedForNeural={} overflowHighScore={}",
+                    split.selectedForNeural().size(), split.overflowHighScore().size());
 
             for (NeuralGateService.EvalItem it : split.overflowHighScore()) {
                 probable.add(mapOriginal(it.pair(), restIdx));
@@ -230,16 +194,18 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                     .map(it -> new PairEval(it.pair(), it.weightedScore(), it.maxLen()))
                     .toList();
 
-            if (!gated.isEmpty())
+            if (!gated.isEmpty()) {
+                log.info("[fuzzy] stage=neural batch={}", gated.size());
                 runNeuralStage(gated, restRows, restIdx, probable, meta);
+            }
         }
 
-        log.info("stage=finish confirmed={} probable={} meta={}", confirmed.size(), probable.size(), meta.size());
-        log.debug("finish.confirmedPairs={}", fmtPairs(confirmed, normalized));
-        log.debug("finish.probablePairs={}", fmtPairs(probable, normalized));
-        log.debug("finish.meta={}", meta.values());
+        DuplicateMatchResponse result = new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
 
-        return new DuplicateMatchResponse(confirmed, probable, new ArrayList<>(meta.values()));
+        log.info("[fuzzy] output sizes: confirmedPairs={} probablePairs={} metaEntries={}",
+                confirmed.size(), probable.size(), result.meta().size());
+
+        return result;
     }
 
     private PairEval evaluatePair(IndexPair pair, List<RowNorm> rows) {
@@ -257,9 +223,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                 props.levWeight() * lev +
                 props.jwWeight() * jw;
 
-        log.debug("score {} «{}» / «{}» token={} lev={} jw={} weighted={}",
-                pair, left, right, token, lev, jw, weighted);
-
         return new PairEval(pair, weighted, Math.max(left.length(), right.length()));
     }
 
@@ -268,11 +231,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                                 List<Integer> originalIdx,
                                 Set<IndexPair> probable,
                                 ConcurrentHashMap<Integer, RowMeta> meta) {
-
-        log.debug("neural.input.size={} first10={}",
-                batch.size(), batch.stream().limit(10)
-                        .map(e -> pr(e.pair, rows)).toList());
-
         AtomicInteger confirmedByNN = new AtomicInteger();
 
         for (int i = 0; i < batch.size(); i += props.neuralBatchSize()) {
@@ -286,11 +244,11 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                                 rows.get(e.pair.second()).value()))
                         .toList();
 
-                Map<Pair<String, String>, Double> scores =
-                        neuralService.fetchBatchSimilarityScores(q);
+                Map<Pair<String, String>, Double> scores = neuralService.fetchBatchSimilarityScores(q);
 
                 for (int k = 0; k < slice.size(); k++) {
                     PairEval ev = slice.get(k);
+
                     double score = scores.getOrDefault(q.get(k), 0.0);
                     double thr = (ev.maxLen < props.nnLenLimit())
                             ? props.nnConfirmShort()
@@ -300,22 +258,15 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                         probable.add(mapOriginal(ev.pair, originalIdx));
                         confirmedByNN.incrementAndGet();
                         updateMeta(meta, ev.pair, originalIdx);
-                        log.debug("decision=nnConfirm pair={} nnScore={} left='{}' right='{}'",
-                                ev.pair, score,
-                                rows.get(ev.pair.first()).value(),
-                                rows.get(ev.pair.second()).value());
                     } else {
-                        log.debug("decision=nnReject pair={} nnScore={} left='{}' right='{}'",
-                                ev.pair, score,
-                                rows.get(ev.pair.first()).value(),
-                                rows.get(ev.pair.second()).value());
+                        log.info("[fuzzy] no-op");
                     }
                 }
             };
-            CompletableFuture.runAsync(r, neuralPool).join();
-        }
 
-        log.info("stage=neural batch={} confirmedByNN={}", batch.size(), confirmedByNN.get());
+            CompletableFuture.runAsync(r, neuralPool).join();
+            log.info("[fuzzy] stage=neural sliceSize={} confirmedByNN={}", slice.size(), confirmedByNN.get());
+        }
     }
 
     private void updateMeta(ConcurrentHashMap<Integer, RowMeta> meta, IndexPair pair, List<Integer> restIdx) {
@@ -354,17 +305,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
         return IndexPair.of(idx.get(p.first()), idx.get(p.second()));
     }
 
-    private static Map<Integer, RowNorm> toMap(List<RowNorm> rows) {
-        return rows.stream().collect(Collectors.toMap(RowNorm::idx, r -> r));
-    }
-
-    private static String fmtRows(List<RowNorm> rows) {
-        return rows.stream()
-                .map(r -> "[" + r.idx() + "] «" + r.value() + "»")
-                .toList()
-                .toString();
-    }
-
     private static int countCommonAlpha(String a, String b) {
         Set<String> ngrams = new HashSet<>();
         String sa = a.toLowerCase().replaceAll("[^a-z]", "");
@@ -374,6 +314,7 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             for (int i = 0; i <= sa.length() - len; i++)
                 ngrams.add(sa.substring(i, i + len));
         }
+
         int common = 0;
         for (int len : new int[]{3, 4}) {
             for (int i = 0; i <= sb.length() - len && common < 3; i++)
@@ -381,34 +322,6 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
                     common++;
         }
         return common;
-    }
-
-    private static String fmtRowsByIdx(List<RowNorm> all, List<Integer> idxs) {
-        Map<Integer, RowNorm> map = toMap(all);
-        return idxs.stream()
-                .map(map::get)
-                .filter(Objects::nonNull)
-                .map(r -> "[" + r.idx() + "] «" + r.value() + "»")
-                .toList()
-                .toString();
-    }
-
-    private static String fmtPairs(Collection<IndexPair> pairs, List<RowNorm> rows) {
-        Map<Integer, RowNorm> map = toMap(rows);
-        return pairs.stream().map(p -> pr(p, map)).toList().toString();
-    }
-
-    private static String pr(IndexPair p, List<RowNorm> rows) {
-        Map<Integer, RowNorm> map = toMap(rows);
-        return pr(p, map);
-    }
-
-    private static String pr(IndexPair p, Map<Integer, RowNorm> map) {
-        RowNorm l = map.get(p.first());
-        RowNorm r = map.get(p.second());
-        String lv = (l != null) ? l.value() : "∅";
-        String rv = (r != null) ? r.value() : "∅";
-        return p + " -> «" + lv + "» / «" + rv + "»";
     }
 
     private record PairEval(IndexPair pair, double weightedScore, int maxLen) {
