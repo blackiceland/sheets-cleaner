@@ -338,11 +338,16 @@ public class DuplicateDetectionServiceImpl implements DuplicateDetectionService 
             });
         }
 
-        if (l == null)
-            meta.put(idL, new RowMeta(idL, target, ClusterKind.FUZZY));
+        RowMeta leftMeta = meta.get(idL);
+        RowMeta rightMeta = meta.get(idR);
 
-        if (r == null || !r.clusterId().equals(target))
+        if (leftMeta == null) {
+            meta.put(idL, new RowMeta(idL, target, ClusterKind.FUZZY));
+        }
+
+        if (rightMeta == null) {
             meta.put(idR, new RowMeta(idR, target, ClusterKind.FUZZY));
+        }
     }
 
     private IndexPair mapOriginal(IndexPair p, List<Integer> idx) {
