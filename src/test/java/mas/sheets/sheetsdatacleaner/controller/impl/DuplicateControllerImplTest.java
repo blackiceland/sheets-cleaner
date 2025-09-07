@@ -35,7 +35,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "context.store=caffeine",
+        "context.ttl-seconds=300"
+})
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
 @Testcontainers
