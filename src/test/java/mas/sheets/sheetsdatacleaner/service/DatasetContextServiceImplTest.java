@@ -1,0 +1,65 @@
+package mas.sheets.sheetsdatacleaner.service;
+
+import mas.sheets.sheetsdatacleaner.config.ContextProperties;
+import mas.sheets.sheetsdatacleaner.config.TokenProperties;
+import mas.sheets.sheetsdatacleaner.dto.DatasetContext;
+import mas.sheets.sheetsdatacleaner.exception.ContextNotFoundException;
+import mas.sheets.sheetsdatacleaner.service.impl.DatasetContextServiceImpl;
+import mas.sheets.sheetsdatacleaner.service.impl.RedisDatasetContextStore;
+import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@Testcontainers
+public class DatasetContextServiceImplTest {
+
+    @Container
+    @SuppressWarnings("resource")
+    static GenericContainer<?> redis = new GenericContainer<>("redis:7.2").withExposedPorts(6379);
+
+    @Test
+    void save_and_load_then_delete_context() {
+        LettuceConnectionFactory lettuceConnectionFactory = new LettuceConnectionFactory(redis.getHost(), redis.getMappedPort(6379));
+        lettuceConnectionFactory.afterPropertiesSet();
+
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(lettuceConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+
+        ContextProperties contextProperties = new ContextProperties();
+        contextProperties.setTtlSeconds(60);
+        contextProperties.setMaxBytes(1048576);
+
+        RedisDatasetContextStore<DatasetContext> store = new RedisDatasetContextStore<>(template, contextProperties);
+
+        TokenProperties tokenProperties = new TokenProperties();
+        tokenProperties.setSecret("0123456789abcdef0123456789abcdef");
+
+        DatasetContextService service = new DatasetContextServiceImpl(store, tokenProperties, contextProperties);
+
+        DatasetContext datasetContext = new DatasetContext(1, List.of());
+        String savedContext = service.saveContext(datasetContext);
+
+        DatasetContext loadContextOrLegacy = service.loadContextOrLegacy(savedContext);
+        assertThat(loadContextOrLegacy).isNotNull();
+
+        assertThatThrownBy(() -> service.loadContextOrLegacy(savedContext))
+                .isInstanceOf(ContextNotFoundException.class);
+
+        lettuceConnectionFactory.destroy();
+    }
+}
+
+

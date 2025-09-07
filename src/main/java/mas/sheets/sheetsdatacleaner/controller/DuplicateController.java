@@ -7,10 +7,8 @@ import mas.sheets.sheetsdatacleaner.dto.response.ExactDuplicateResponse;
 
 public interface DuplicateController {
 
-    DuplicateMatchResponse detectDuplicates(DuplicateMatchRequest request);
+    ExactDuplicateResponse detectExactDuplicates(DuplicateMatchRequest request);
 
-    ExactDuplicateResponse exactStage(DuplicateMatchRequest request);
-
-    DuplicateMatchResponse fuzzyStage(FuzzyDuplicateRequest request);
+    DuplicateMatchResponse detectFuzzyDuplicates(FuzzyDuplicateRequest request);
 
 }

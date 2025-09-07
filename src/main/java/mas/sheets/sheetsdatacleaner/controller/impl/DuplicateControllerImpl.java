@@ -1,84 +1,93 @@
 package mas.sheets.sheetsdatacleaner.controller.impl;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import mas.sheets.sheetsdatacleaner.controller.DuplicateController;
-import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
-import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
-import mas.sheets.sheetsdatacleaner.dto.request.FuzzyDuplicateRequest;
-import mas.sheets.sheetsdatacleaner.dto.response.ExactDuplicateResponse;
-import mas.sheets.sheetsdatacleaner.dto.DatasetPayload;
+import mas.sheets.sheetsdatacleaner.dto.DatasetContext;
 import mas.sheets.sheetsdatacleaner.dto.ExactStageResult;
-import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
-import mas.sheets.sheetsdatacleaner.service.ExactDuplicateService;
-import mas.sheets.sheetsdatacleaner.util.DatasetTokenUtil;
-import mas.sheets.sheetsdatacleaner.service.ExactDuplicateDetector;
-import mas.sheets.sheetsdatacleaner.model.RowNorm;
+import mas.sheets.sheetsdatacleaner.dto.request.DuplicateMatchRequest;
+import mas.sheets.sheetsdatacleaner.dto.request.FuzzyDuplicateRequest;
+import mas.sheets.sheetsdatacleaner.dto.response.DuplicateMatchResponse;
+import mas.sheets.sheetsdatacleaner.dto.response.ExactDuplicateResponse;
 import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.validation.annotation.Validated;
+import mas.sheets.sheetsdatacleaner.model.RowNorm;
+import mas.sheets.sheetsdatacleaner.service.DatasetContextService;
+import mas.sheets.sheetsdatacleaner.service.DuplicateDetectionService;
+import mas.sheets.sheetsdatacleaner.service.ExactDuplicateDetector;
+import mas.sheets.sheetsdatacleaner.service.ExactDuplicateService;
+import mas.sheets.sheetsdatacleaner.util.ApiPaths;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.time.Instant;
 
 @Slf4j
 @RestController
-@Validated
 @RequiredArgsConstructor
+@Tag(name = "Дубликаты", description = "Операции поиска точных и нечетких дубликатов")
 public class DuplicateControllerImpl implements DuplicateController {
 
     private final DuplicateDetectionService duplicateDetectionService;
     private final ExactDuplicateService exactService;
     private final ExactDuplicateDetector exactDetector;
+    private final DatasetContextService datasetContextService;
 
-    @Value("${token.secret:0123456789abcdef0123456789abcdef}")
-    private byte[] tokenSecret;
 
-    @Override
-    @PostMapping("/api/v1/sheets/duplicates")
-    public DuplicateMatchResponse detectDuplicates(@RequestBody DuplicateMatchRequest request) {
-        return null;
-    }
+    @PostMapping(ApiPaths.DUPLICATES_EXACT)
+    @Operation(
+            summary = "Поиск точных дубликатов",
+            description = "Выполняет этап точного поиска дубликатов и возвращает идентификатор контекста (UUID) для последующего этапа нечеткого поиска",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Обработка завершена",
+                            content = @Content(schema = @Schema(implementation = ExactDuplicateResponse.class)))
+            }
+    )
+    public ExactDuplicateResponse detectExactDuplicates(@RequestBody DuplicateMatchRequest request) {
+        ExactStageResult exactStageResult = exactService.detectExact(request);
 
-    @PostMapping("/api/v1/sheets/duplicates/exact")
-    public ExactDuplicateResponse exactStage(@RequestBody DuplicateMatchRequest request) {
-        ExactStageResult stage = exactService.detectExact(request);
+        DuplicateMatchResponse exactResponse = exactStageResult.exactResponse();
 
-        DuplicateMatchResponse resp = stage.exactResponse();
+        DatasetContext context = new DatasetContext(1, exactStageResult.normalizedRows());
 
-        long exp = Instant.now().getEpochSecond() + 1800;
+        String contextId = datasetContextService.saveContext(context);
 
-        DatasetPayload payload = new DatasetPayload(exp, stage.normalizedRows(), stage.exactResult(), false);
-
-        String token = DatasetTokenUtil.encode(payload, tokenSecret);
-
-        List<ExactDuplicateResponse.RowIndexId> rowsInfo = stage.normalizedRows().stream()
-                .map(r -> new ExactDuplicateResponse.RowIndexId(
-                        r.idx(),
-                        r.rowId()))
+        List<ExactDuplicateResponse.RowIndexId> rowsInfo = exactStageResult.normalizedRows()
+                .stream()
+                .map(row -> new ExactDuplicateResponse.RowIndexId(row.idx(), row.rowId()))
                 .toList();
 
-        return new ExactDuplicateResponse(token, resp, rowsInfo);
+        return new ExactDuplicateResponse(contextId, exactResponse, rowsInfo);
     }
 
-    @PostMapping("/api/v1/sheets/duplicates/fuzzy")
-    public DuplicateMatchResponse fuzzyStage(@RequestBody FuzzyDuplicateRequest request) {
-        DatasetPayload payload = DatasetTokenUtil.decode(request.datasetToken(), tokenSecret);
+    @PostMapping(ApiPaths.DUPLICATES_FUZZY)
+    @Operation(
+            summary = "Поиск нечетких дубликатов",
+            description = "Выполняет этап нечеткого поиска дубликатов, используя идентификатор контекста (UUID) из предыдущего шага",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Обработка завершена",
+                            content = @Content(schema = @Schema(implementation = DuplicateMatchResponse.class)))
+            }
+    )
+    public DuplicateMatchResponse detectFuzzyDuplicates(@RequestBody FuzzyDuplicateRequest request) {
+        DatasetContext context = datasetContextService.loadContextOrLegacy(request.datasetToken());
 
-        List<Long> removed = request.removedRowIds() == null
+        List<Long> removedRowIds = request.removedRowIds() == null
                 ? List.of()
                 : request.removedRowIds();
 
-        List<RowNorm> kept = payload.rows()
+        List<RowNorm> keptRows = context.rows()
                 .stream()
-                .filter(r -> !removed.contains(r.rowId()))
+                .filter(row -> !removedRowIds.contains(row.rowId()))
                 .toList();
 
-        ExactDetectionResult exact = exactDetector.detect(kept);
+        ExactDetectionResult exactDetectionResult = exactDetector.detect(keptRows);
 
-        return duplicateDetectionService.detectFuzzy(kept, exact);
+        return duplicateDetectionService.detectFuzzy(keptRows, exactDetectionResult);
     }
 }

@@ -5,6 +5,7 @@ import mas.sheets.sheetsdatacleaner.model.ExactDetectionResult;
 import mas.sheets.sheetsdatacleaner.model.RowMeta;
 import mas.sheets.sheetsdatacleaner.model.RowNorm;
 import mas.sheets.sheetsdatacleaner.service.ExactDuplicateDetector;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -29,12 +30,7 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
     @Override
     public ExactDetectionResult detect(List<RowNorm> rows) {
         if (rows == null || rows.isEmpty()) {
-            return new ExactDetectionResult(
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    Collections.emptyList(),
-                    Collections.emptyMap()
-            );
+            return getExactDetectionResult();
         }
 
         int n = rows.size();
@@ -70,5 +66,14 @@ public class ExactDuplicateDetectorImpl implements ExactDuplicateDetector {
         }
 
         return new ExactDetectionResult(duplicateGroups, remainRows, remainIdxSrc, metaByIdx);
+    }
+
+    private static @NotNull ExactDetectionResult getExactDetectionResult() {
+        return new ExactDetectionResult(
+                Collections.emptyList(),
+                Collections.emptyList(),
+                Collections.emptyList(),
+                Collections.emptyMap()
+        );
     }
 }

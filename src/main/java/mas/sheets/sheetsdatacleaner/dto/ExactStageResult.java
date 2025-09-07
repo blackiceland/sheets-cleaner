@@ -6,9 +6,6 @@ import mas.sheets.sheetsdatacleaner.model.RowNorm;
 
 import java.util.List;
 
-/**
- * Результат стадии точного детектора.
- */
 public record ExactStageResult(
         DuplicateMatchResponse exactResponse,
         List<RowNorm> normalizedRows,

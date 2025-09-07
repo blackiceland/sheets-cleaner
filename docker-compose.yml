@@ -13,9 +13,14 @@ services:
       JWT_PUBLIC_KEY_LOCATION: classpath:jwt/dev-public.pem
       TG_BOT_TOKEN: dummy
       EMBEDDING_BASE_URL: http://similarity:5000/similarity
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      CONTEXT_TTL_SECONDS: 300
     depends_on:
       similarity:
         condition: service_healthy
+      redis:
+        condition: service_started
     secrets: [ jwt_pub, tg_bot_token ]
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
@@ -33,6 +38,12 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  redis:
+    image: redis:7.2
+    networks: [ stack ]
+    ports: [ "6379:6379" ]
+    command: [ "redis-server", "--save", "", "--appendonly", "no" ]
 
   prometheus:
     image: prom/prometheus:v2.52.0
